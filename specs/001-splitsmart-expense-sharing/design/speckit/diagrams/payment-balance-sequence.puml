@@ -1,0 +1,29 @@
+@startuml
+actor "Authorized Recorder" as Actor
+participant "Swing Client" as UI
+participant "Payment Use Case" as UC
+participant "Payment / Balance Domain" as Domain
+database "Relational Store" as DB
+
+Actor -> UI : enter debtor, creditor, amount, date
+UI -> UC : recordPayment(command, actor session)
+UC -> DB : begin transaction; lock pairwise position
+DB --> UC : current net outstanding debt
+UC -> Domain : validate amount <= outstanding debt
+alt valid partial or full payment
+  Domain --> UC : payment + counter-posting
+  UC -> DB : insert payment and unique ledger posting;\nupdate projection and audit
+  DB --> UC : commit
+  UC --> UI : payment history item + new net balance
+  UI --> Actor : show settled/remaining amount
+else invalid / amount exceeds debt
+  Domain --> UC : validation/conflict error
+  UC -> DB : rollback without financial mutation
+  UC --> UI : explicit rejection
+  UI --> Actor : show reason; balance unchanged
+end
+note over UC,DB
+Debt is rechecked under transaction serialization.
+Retries use an idempotency key; no duplicate payment.
+end note
+@enduml

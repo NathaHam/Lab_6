@@ -1,0 +1,35 @@
+@startuml
+start
+:Authenticate group member;
+:Enter expense, payer, participants,\nsplit and optional receipt;
+if (Input valid and exact allocation possible?) then (yes)
+  :Manager designates one group-member reviewer;
+  if (Reviewer differs from submitter?) then (yes)
+    :Persist pending expense and share snapshot;
+    :Persist in-app notice for other members;
+    :Enqueue email for recipients signed out at submission;
+    :Show pending status and submitter;
+    :Assigned reviewer opens pending expense;
+    if (Actor is assigned reviewer and not submitter?) then (yes)
+      if (Reviewer approves?) then (approve)
+        :Transactionally set approved;
+        :Post obligations excluding payer's own share;
+        :Update projection / audit / outcome notice;
+        :Commit;
+      else (reject)
+        :Transactionally set rejected;
+        :Write audit / outcome notice;\nwrite no balance entries;
+        :Commit;
+      endif
+      :Show status and review outcome;
+    else (no)
+      :Deny review with no state or balance change;
+    endif
+  else (no)
+    :Request another reviewer;
+  endif
+else (no)
+  :Return explicit validation error;\ndo not submit;
+endif
+stop
+@enduml

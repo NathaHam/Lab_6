@@ -1,0 +1,30 @@
+@startuml
+node "User device" {
+  artifact "SplitSmart Swing client\nJava 21" as Client
+}
+cloud "Authenticated encrypted connection\ntransport details proposed" as Network
+node "Service environment\nprovider/scale undecided" {
+  artifact "SplitSmart application service\nJava 21 (proposed)" as Service
+  database "Relational database\nPostgreSQL candidate" as DB
+  artifact "Outbox worker" as Worker
+}
+cloud "Private receipt object storage\nprovider undecided" as ObjectStore
+cloud "Email delivery system\nprovider undecided" as Mail
+cloud "Secret/key management\nimplementation undecided" as KMS
+
+Client --> Network
+Network --> Service
+Service --> DB : transactional records
+Worker --> DB : claim and update outbox
+Service --> ObjectStore : authorized receipt operations
+Worker --> Mail : verification / notices
+Service --> KMS : protect credential secrets
+note bottom of Client
+The client has no direct database,
+object-store, or email credentials.
+end note
+note bottom of Service
+Logical deployment only; no provider,
+topology, network policy or SLA selected.
+end note
+@enduml

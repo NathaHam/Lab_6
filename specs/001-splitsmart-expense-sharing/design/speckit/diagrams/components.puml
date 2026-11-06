@@ -1,0 +1,60 @@
+@startuml
+skinparam componentStyle rectangle
+package "Desktop presentation" {
+  [Swing Views] as Views
+  [Swing Actions] as Actions
+}
+package "Application service" {
+  [Authentication Use Cases] as AuthUC
+  [Group / Invitation Use Cases] as GroupUC
+  [Expense / Review Use Cases] as ExpenseUC
+  [Payment / Balance Use Cases] as PaymentUC
+  [Report Use Cases] as ReportUC
+}
+package "Domain" {
+  [Account and Membership Rules] as IdentityDomain
+  [Expense and Split Rules] as ExpenseDomain
+  [Balance and Payment Rules] as BalanceDomain
+}
+package "Infrastructure adapters" {
+  [Transaction / Repositories] as Repos
+  [Receipt Storage Port] as Receipt
+  [Notification Outbox / Email Port] as Notify
+  [Credential / Key Adapter] as Credential
+  [Audit Adapter] as Audit
+}
+database "Relational Store\n(proposed)" as SQL
+cloud "Receipt Object Store\n(provider undecided)" as ObjectStore
+cloud "Email Provider\n(undecided)" as Mail
+cloud "Key Management\n(undecided)" as KMS
+
+Views --> Actions
+Actions --> AuthUC
+Actions --> GroupUC
+Actions --> ExpenseUC
+Actions --> PaymentUC
+Actions --> ReportUC
+AuthUC --> IdentityDomain
+GroupUC --> IdentityDomain
+ExpenseUC --> ExpenseDomain
+PaymentUC --> BalanceDomain
+ReportUC --> BalanceDomain
+AuthUC --> Repos
+AuthUC --> Credential
+GroupUC --> Repos
+ExpenseUC --> Repos
+ExpenseUC --> Notify
+ExpenseUC --> Receipt
+ExpenseUC --> Audit
+PaymentUC --> Repos
+PaymentUC --> Audit
+ReportUC --> Repos
+Repos --> SQL
+Receipt --> ObjectStore
+Notify --> Mail
+Credential --> KMS
+note bottom
+Infrastructure implements application/domain ports.
+Swing does not access SQL or provider systems directly.
+end note
+@enduml

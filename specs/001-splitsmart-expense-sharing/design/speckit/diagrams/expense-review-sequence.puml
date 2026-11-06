@@ -1,0 +1,42 @@
+@startuml
+actor Submitter
+actor "Designated Reviewer" as Reviewer
+participant "Swing Client" as UI
+participant "Expense Use Case" as UC
+participant "Domain Expense" as Domain
+database "Relational Store" as DB
+participant "Outbox Dispatcher" as Outbox
+participant "Email / In-app Adapter" as Notice
+
+Submitter -> UI : enter expense and submit
+UI -> UC : submit(command, actor session)
+UC -> Domain : validate and allocate exact shares
+Domain --> UC : pending expense + share snapshot
+UC -> DB : transaction: save pending expense,\nreviewer, notifications, email intents, audit
+DB --> UC : committed
+UC --> UI : pending status
+UI --> Submitter : show pending, submitter, reviewer
+Outbox -> DB : claim durable outbox items
+Outbox -> Notice : deliver notices (idempotency key)
+Notice --> Outbox : delivery outcome
+Outbox -> DB : record outcome / retry state
+
+Reviewer -> UI : approve or reject
+UI -> UC : decide(expenseId, outcome, actor session)
+UC -> DB : begin transaction and lock pending expense
+UC -> Domain : verify assigned reviewer and transition
+alt approved
+  Domain --> UC : approved + obligations
+  UC -> DB : persist decision, unique ledger entries,\nprojection, audit, result notice
+else rejected
+  Domain --> UC : rejected, no obligations
+  UC -> DB : persist decision, audit, result notice
+end
+DB --> UC : commit all or rollback all
+UC --> UI : final status / conflict
+UI --> Reviewer : show status and review outcome
+note over UC,DB
+Repeated review requests cannot post twice.
+Only the designated non-submitter reviewer succeeds.
+end note
+@enduml

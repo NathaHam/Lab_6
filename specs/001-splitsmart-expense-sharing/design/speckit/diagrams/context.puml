@@ -1,0 +1,33 @@
+@startuml
+left to right direction
+actor "Account holder" as User
+actor "Group manager" as Manager
+actor "Expense reviewer" as Reviewer
+actor "Invitee" as Invitee
+rectangle "SplitSmart MVP boundary" {
+  component "Java Swing desktop client" as Client
+  component "SplitSmart application service" as Service
+  database "Relational system of record\n(proposed)" as DB
+  component "Private receipt storage\n(provider undecided)" as ReceiptStore
+  component "Email delivery\n(provider undecided)" as Email
+  component "Secret/key management\n(undecided)" as Keys
+}
+User --> Client : uses
+Manager --> Client : manages groups
+Reviewer --> Client : reviews assigned expense
+Invitee --> Client : accepts invitation
+Client --> Service : authenticated requests
+Service --> DB : transactional state
+Service --> ReceiptStore : authorized image access
+Service --> Email : outbox delivery
+Service --> Keys : protect credential secrets
+note bottom of Client
+Swing is presentation only.
+Domain rules and authorization
+are enforced by the service.
+end note
+note bottom of Email
+Only members signed out at
+expense submission are emailed.
+end note
+@enduml

@@ -1,0 +1,20 @@
+@startuml
+start
+:Authenticate and authorize recorder;
+:Select group, debtor, creditor,\namount and date;
+if (Distinct eligible parties and valid positive amount?) then (yes)
+  :Begin transaction and lock pairwise debt;
+  if (Amount <= current outstanding debt?) then (yes)
+    :Insert immutable payment;
+    :Post counter-entry and update projection;
+    :Append audit event;
+    :Commit payment and balance atomically;
+    :Show history and new balance;
+  else (no)
+    :Rollback; show overpayment error;\nbalance/history unchanged;
+  endif
+else (no)
+  :Reject input/authorization;\nno financial mutation;
+endif
+stop
+@enduml

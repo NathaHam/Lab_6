@@ -1,0 +1,19 @@
+@startuml
+[*] --> PendingReview : submit valid expense
+PendingReview --> Approved : designated non-submitter reviewer approves
+PendingReview --> Rejected : designated non-submitter reviewer rejects
+Approved --> [*]
+Rejected --> [*]
+note right of PendingReview
+No balance entries exist.
+Exactly one reviewer in MVP.
+end note
+note right of Approved
+Approval and complete posting set
+commit in one transaction, exactly once.
+end note
+note right of Rejected
+No balance entries. Correction and
+resubmission policy is unresolved.
+end note
+@enduml

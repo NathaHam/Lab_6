@@ -1,0 +1,39 @@
+@startuml
+left to right direction
+actor "Account holder" as Member
+actor "Group manager" as Manager
+actor "Invitee" as Invitee
+actor "Designated reviewer" as Reviewer
+rectangle SplitSmart {
+  usecase "Register / verify email /\nenroll MFA" as UC1
+  usecase "Sign in with password\nand authenticator code" as UC2
+  usecase "Use one-time\nrecovery code" as UC3
+  usecase "Create/manage group" as UC4
+  usecase "Invite/remove members" as UC5
+  usecase "Accept invitation" as UC6
+  usecase "Submit expense and\noptional receipt" as UC7
+  usecase "View in-app notice /\nreceive signed-out email" as UC8
+  usecase "Review assigned expense" as UC9
+  usecase "View balances /\nrecord payment" as UC10
+  usecase "View filtered summaries\nand reports" as UC11
+}
+Member --> UC1
+Member --> UC2
+Member --> UC3
+Member --> UC4
+Manager --> UC5
+Invitee --> UC6
+Member --> UC7
+Member --> UC8
+Reviewer --> UC9
+Member --> UC10
+Member --> UC11
+note bottom of UC9
+MVP: one manager-designated reviewer,
+not the submitter.
+end note
+note bottom of SplitSmart
+Web / Android / iOS are full-product scope;
+the Swing MVP does not satisfy those platforms.
+end note
+@enduml

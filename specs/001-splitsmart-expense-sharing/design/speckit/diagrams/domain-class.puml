@@ -1,0 +1,102 @@
+@startuml
+hide methods
+skinparam classAttributeIconSize 0
+class Account {
+  accountId
+  verifiedEmail
+  passwordVerifier
+  mfaEnrolledAt
+}
+class Group {
+  groupId
+  name
+  currencyCode
+}
+class Membership {
+  role
+  joinedAt
+  removedAt?
+}
+class Invitation {
+  state
+  createdAt
+  acceptedAt?
+}
+class Expense {
+  expenseId
+  amount: BigDecimal
+  occurredOn
+  splitMethod
+  status
+  submitterId
+  payerId
+  reviewerId
+}
+class ExpenseShare {
+  participantId
+  percentage?: BigDecimal
+  allocatedAmount: BigDecimal
+}
+class ExpenseReview {
+  outcome
+  decidedAt
+}
+class ReceiptReference {
+  opaqueObjectKey
+}
+class Payment {
+  debtorId
+  creditorId
+  amount: BigDecimal
+  occurredOn
+}
+class BalanceEntry {
+  debtorId
+  creditorId
+  amount: BigDecimal
+  sourceType
+  sourceId
+}
+class BalancePosition <<projection>> {
+  memberPair
+  netAmount: BigDecimal
+}
+class Notification {
+  recipientId
+  expenseId
+  createdAt
+}
+class OutboxMessage {
+  channel
+  state
+  attemptCount
+}
+class AuditEvent {
+  actorId
+  action
+  occurredAt
+}
+
+Account "1" -- "0..*" Membership
+Group "1" -- "0..*" Membership
+Group "1" -- "0..*" Invitation
+Group "1" -- "0..*" Expense
+Expense "1" *-- "1..*" ExpenseShare
+Expense "1" -- "0..1" ExpenseReview
+Expense "1" -- "0..1" ReceiptReference
+Group "1" -- "0..*" Payment
+Payment "1" -- "1..*" BalanceEntry : counter-posting
+Expense "1" -- "0..*" BalanceEntry : approval posting
+BalancePosition ..> BalanceEntry : derived from
+Expense "1" -- "0..*" Notification
+Expense "1" -- "0..*" OutboxMessage
+Group "0..1" -- "0..*" AuditEvent
+note right of ExpenseShare
+Shares are immutable after submission.
+Their sum equals Expense.amount.
+end note
+note bottom of BalanceEntry
+Only approved expenses and recorded payments
+produce entries. Pending/rejected expenses do not.
+end note
+@enduml
