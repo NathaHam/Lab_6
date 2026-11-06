@@ -1,0 +1,52 @@
+@startuml use-case
+title SplitSmart — Use Cases (Swing MVP and full-product scope)
+left to right direction
+skinparam packageStyle rectangle
+
+actor "Member" as Member
+actor "Group manager" as Manager
+actor "Designated reviewer" as Reviewer
+actor "Invited person" as Invitee
+actor "Email provider\n(not selected)" as Email <<external>>
+Manager --|> Member
+Reviewer --|> Member
+
+rectangle "SplitSmart shared application server (Swing MVP client)" {
+  usecase "Register, verify email,\nenrol authenticator app (FR-001)" as UC1
+  usecase "Sign in with password +\nTOTP or recovery code (FR-001)" as UC2
+  usecase "Create group (FR-002)" as UC3
+  usecase "Invite / remove member (FR-002)" as UC4
+  usecase "Accept / decline invitation (FR-002)" as UC5
+  usecase "Submit expense with split\nand optional receipt (FR-003..005)" as UC6
+  usecase "Designate reviewer\nfor an expense (FR-006)" as UC7
+  usecase "Approve / reject expense (FR-006)" as UC8
+  usecase "Receive submission notice (FR-007)" as UC9
+  usecase "View pairwise balances (FR-008)" as UC10
+  usecase "Record payment (FR-009)" as UC11
+  usecase "View summaries and\nfiltered reports (FR-010, FR-011)" as UC12
+  usecase "View expense status, submitter,\nreviewer, outcome (NFR-004)" as UC13
+}
+
+rectangle "Full product (not delivered by Swing MVP)" {
+  usecase "Use web, Android, iOS clients\n(FR-012, NFR-005)" as UC14
+  usecase "Configure multiple review\nlevels (FR-006 full)" as UC15
+}
+
+Member --> UC1
+Member --> UC2
+Member --> UC3
+Member --> UC6
+Member --> UC9
+Member --> UC10
+Member --> UC11
+Member --> UC12
+Member --> UC13
+Invitee --> UC5
+Manager --> UC4
+Manager --> UC7
+Reviewer --> UC8
+Member ..> UC14
+Manager ..> UC15
+UC9 ..> Email : signed-out\nmembers
+UC1 ..> Email : verification
+@enduml

@@ -1,0 +1,46 @@
+@startuml activity-payment-settlement
+title SplitSmart — Activity: Payment Settlement
+
+|Debtor or creditor (Swing)|
+start
+:Enter payer (debtor), recipient (creditor),
+amount, date, optional description;
+:Send RecordPayment(commandId);
+|Server|
+if (Same commandId already processed?) then (yes)
+  :Return stored result;
+  stop
+endif
+if (Caller is payer or recipient (OD-06),\nboth active members, payer != recipient?) then (no)
+  :Return Forbidden / ValidationFailed;
+  stop
+endif
+if (Amount > 0, group currency,\nexact minor-unit scale? (OD-07)) then (no)
+  :Return ValidationFailed;
+  stop
+endif
+:Begin transaction;
+:Acquire LedgerHead(group)
+(row lock or CAS);
+:Compute outstanding(payer -> recipient)
+from ledger after acquiring head;
+if (amount <= outstanding?) then (no)
+  :Roll back; no payment, no posting;
+  :Return OverpaymentRejected(outstanding);
+  stop
+else (yes)
+  :Insert Payment (immutable);
+  :Insert one counter-posting
+  LedgerEntry(PAYMENT, debtor=recipient,
+  creditor=payer, amount);
+  :Bump LedgerHead; update projection if enabled;
+  :Record processed command and audit;
+  :Commit;
+endif
+if (CAS conflict?) then (yes)
+  :Bounded retry from "Begin transaction",
+  then Conflict;
+endif
+:Return payment and new pairwise balance;
+stop
+@enduml

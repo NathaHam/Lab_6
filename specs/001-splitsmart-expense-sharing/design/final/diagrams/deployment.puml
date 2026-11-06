@@ -1,0 +1,36 @@
+@startuml deployment
+title SplitSmart — Deployment (Swing MVP, shared server, HD-02)
+
+node "User desktop (one per user)" as Desk {
+  artifact "swing-client.jar\n(Java 21)" as Client
+}
+
+node "Application server host" as Host {
+  node "Java 21 runtime" {
+    artifact "server.jar\n(api adapter, application,\ndomain, infrastructure)" as Server
+    component "Outbox dispatcher\n(background task)" as Disp
+  }
+}
+
+database "Relational-capable store\n(vendor not selected, OD-23)" as DB
+cloud "Private receipt storage\n(provider not selected, OD-17)" as Store
+cloud "Email provider\n(not selected, OD-19)" as Mail
+cloud "Key management\n(custody open, OD-18)" as KMS
+
+Client --> Server : encrypted, server-authenticated\ntransport (protocol OD-24)\nsession token per request
+Server --> DB : server-only credentials
+Disp --> DB : lease / CAS
+Server --> Store : put / get (authorized first)
+Disp --> Mail : send(messageId)
+Server --> KMS : TOTP secret keys
+
+note right of Desk
+  Untrusted. Holds no database URL,
+  credentials or provider keys.
+end note
+note bottom of Host
+  One instance is sufficient for the MVP.
+  Full-product web, Android, iOS clients would
+  call the same server (not delivered here).
+end note
+@enduml

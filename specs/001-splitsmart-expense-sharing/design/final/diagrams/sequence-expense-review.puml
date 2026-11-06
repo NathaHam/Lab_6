@@ -1,0 +1,58 @@
+@startuml sequence-expense-review
+title SplitSmart — Sequence: Submit, Designate, Approve (Swing MVP)
+autonumber
+
+actor Submitter
+actor Manager
+actor Reviewer
+participant "Swing client" as UI
+box "Shared application server" #EEEEFF
+  participant "API adapter" as API
+  participant "ExpenseService /\nReviewService" as SVC
+  participant "AccessPolicy" as AP
+  participant "ShareAllocator" as AL
+  participant "UnitOfWork" as UOW
+end box
+database "Database" as DB
+
+Submitter -> UI : fill expense form
+UI -> API : submitExpense(cmdId, ...) + session token
+API -> SVC : submit(principal, cmd)
+SVC -> UOW : begin
+SVC -> DB : processed_command(cmdId)?
+DB --> SVC : none
+SVC -> AP : member(principal, group)
+SVC -> AL : allocate(amount, method, participants)
+AL --> SVC : shares (Σ = amount)
+SVC -> DB : insert expense PENDING_REVIEW, shares,\nnotifications, outbox rows, CAS group version,\nprocessed_command, audit
+SVC -> UOW : commit
+SVC --> UI : PENDING_REVIEW, shares
+
+Manager -> UI : designate reviewer\n(default may prefill)
+UI -> API : designateReviewer(expenseId, reviewerId, v)
+API -> SVC : designate(principal, ...)
+SVC -> AP : manager(principal, group)
+SVC -> DB : save ReviewerAssignment\n[reviewer != submitter, version v]
+SVC --> UI : ASSIGNED
+
+Reviewer -> UI : approve
+UI -> API : approve(cmdId, expenseId, expectedVersion)
+API -> SVC : approve(principal, ...)
+SVC -> UOW : begin
+SVC -> DB : load expense + assignment
+SVC -> SVC : principal == assigned reviewer?\nstatus PENDING_REVIEW? version matches?
+SVC -> DB : acquire LedgerHead(group)
+SVC -> DB : insert ReviewRecord(level 1, APPROVE),\nstatus APPROVED, ledger entries\n(non-payer, nonzero shares),\nbump head, processed_command, audit
+alt commit succeeds
+  SVC -> UOW : commit
+  SVC --> UI : APPROVED
+else version conflict or duplicate posting
+  SVC -> UOW : rollback (nothing persisted)
+  SVC --> UI : StaleState / AlreadyDecided
+end
+note over SVC, DB
+  Reject follows the same checks, writes ReviewRecord(REJECT)
+  and status REJECTED, and never touches the ledger.
+  No approval/rejection notices in the MVP (HD-07).
+end note
+@enduml

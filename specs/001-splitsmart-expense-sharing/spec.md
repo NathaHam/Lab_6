@@ -2,11 +2,15 @@
 
 **Feature Branch**: `001-splitsmart-expense-sharing`
 
-**Created**: 2026-10-29
+**Created**: 2026-10-29 | **Reconciled**: 2026-11-05 (final design package)
 
-**Status**: Draft
+**Status**: Reconciled draft. Human review required (Constitution IX).
 
 **Input**: User description: "Read UserRequirement.md in this workspace as the authoritative customer requirements. Write a testable SplitSmart feature specification: actors, user scenarios, functional and non-functional requirements, acceptance criteria, requirement IDs (FR-001, etc.), and open questions. Preserve all original customer features in the requirements inventory; label the Java Swing MVP subset separately. Do not write Java code. Do not edit UserRequirement.md."
+
+**Canonical requirements**: Everything below this header is identical to `design/final/requirements.md`. Change both together. The design is in `design/final/`.
+
+Labels: **[SOURCE]** customer requirement or clarification. **[HUMAN]** approved human decision (`design/final/decisions.md` HD-xx). **[INTERIM]** safe default until an open decision (OD-xx) is made. Interim defaults are not approved policy.
 
 ## Clarifications
 
@@ -24,380 +28,164 @@
 - Q: What second-factor method should SplitSmart require in addition to an email address and password? → A: Require an authenticator-app code and provide recovery codes.
 - Q: When participants have equal fractional remainders in a split, what order should decide who receives the leftover cent first? → A: Use alphabetical order by participant name.
 
+### Session 2026-11-05 (human architecture and reconciliation decision)
+
+- Architecture: Spec Kit's four-layer MVP design is the baseline. Claude Code's value objects, idempotency, concurrency control and security treatment are adopted. The deployment is a thin Java Swing client calling a shared application server. Clients never connect directly to the database and never hold database credentials. (HD-01 to HD-05)
+- Reviewer: for every Swing MVP expense, the manager designates exactly one reviewer for *that expense*. A standing group reviewer may only prefill that designation, and the manager must confirm it. (HD-06)
+- Notifications: only submission notices are mandatory. Approval and rejection notices are not part of MVP behaviour. (HD-07)
+- Lifecycle: pending and rejected expenses never post to balances. Approval posts exactly once, atomically with the decision. Terminal records are never silently edited or reopened. (HD-08)
+- Identical names: an unresolved identical-name tie that would change an allocation is rejected (fail closed). No tie-break rule is invented. (HD-10)
+- Persistence: the database vendor is not selected. Required capabilities are specified instead. (HD-11)
+
 ## Actors
 
-- **Individual user**: Registers, signs in, participates in groups, enters expenses,
-  reviews balances, records payments, and views reports.
-- **Group creator or manager**: Creates a group, invites people, and manages
-  its membership.
-- **Invited person**: Accepts a group invitation before gaining access to
-  that group's information.
-- **Expense submitter**: Enters an expense and identifies the people who share it.
-- **Expense reviewer**: A person designated by the group manager to review
-  expenses. A submitter cannot review their own expense.
-- **Expense participant**: A group member included in an expense and affected by
-  its resulting balances.
+- **Individual user**: registers, signs in, takes part in groups, enters expenses, views balances, records payments and views reports.
+- **Group manager**: creates a group, invites and removes members, and designates the reviewer of each submitted expense.
+- **Invited person**: must accept an invitation before getting any access to the group.
+- **Expense submitter**: enters an expense and identifies its payer and participants.
+- **Designated reviewer**: the one active member the manager assigned to a specific expense. Never the submitter.
+- **Expense participant**: a group member included in an expense.
+- **Shared application server** (system actor): the only trusted component. It enforces authentication, authorization and all business rules.
+- **Email provider** and **receipt storage** (external systems): reached only through provider-neutral ports. Providers are not selected.
 
-## User Scenarios & Testing *(mandatory)*
+## Scope split
 
-### User Story 1 - Share a group expense (Priority: P1, Java Swing MVP)
+| Scope | Content |
+|---|---|
+| **Java Swing MVP** | FR-001 to FR-011 and NFR-001 to NFR-004 and NFR-006, delivered through a thin Swing client and the shared application server. Exactly one review level. |
+| **Full product** | FR-012 and NFR-005 (web-primary, Android, iOS), plus configurable multiple review levels (FR-006). The shared server is the evolution seam. It does **not** prove that these clients exist, and the Swing MVP does **not** satisfy FR-012 or NFR-005. |
+| **Out of scope unless the sources change** | Foreign exchange, more than one currency per group, offline entry and synchronization, report export. |
 
-A user creates an account, starts or joins a group, and records an expense for
-the members who shared it. The user can divide the amount equally or specify
-each participant's percentage. The group can see the expense after it is
-approved and understand how it changes who owes whom.
+## User Scenarios & Testing
 
-**Why this priority**: Recording and splitting shared expenses is the core
-customer value of SplitSmart.
+### User Story 1 — Share a group expense (P1, Java Swing MVP)
 
-**Independent Test**: Create two accounts and a group, submit and approve an
-expense with at least two participants, and verify the displayed shares and
-pairwise balances.
+A user creates an account, starts or joins a group, and records an expense for the members who shared it, split equally or by percentage. The expense affects balances only after its designated reviewer approves it.
 
-**Acceptance Scenarios**:
+**Independent test**: Create two verified, MFA-enrolled accounts and a group. Submit an expense with at least two participants, designate a reviewer, approve it, and check the shares and pairwise balances.
 
-1. **Given** a signed-in user and a group with at least two members, **When**
-   the user submits a valid equally split expense, **Then** the expense is
-   marked pending review and is not yet included in balances.
-2. **Given** an expense awaiting review, **When** its designated reviewer approves
-   it, **Then** the expense is included in the participants' balances and the
-   group members are notified.
-3. **Given** a valid expense using percentage shares totaling 100%, **When**
-   it is approved, **Then** each participant's share is displayed and the
-   shares add up exactly to the expense total.
+1. **Given** a signed-in member and a group with at least two members, **when** the member submits a valid equal split, **then** the expense is `PENDING_REVIEW`, appears in group activity, and is not in balances.
+2. **Given** a pending expense, **when** the manager designates an eligible reviewer who is not the submitter, **then** only that reviewer may decide the expense.
+3. **Given** a pending expense with a designated reviewer, **when** the reviewer approves it, **then** it becomes `APPROVED` and each non-payer participant's share is posted once as a debt to the payer.
+4. **Given** a percentage split totalling exactly 100%, **when** it is approved, **then** the shares are shown and add up exactly to the expense total.
 
----
+### User Story 2 — Review and settle balances (P1, Java Swing MVP)
 
-### User Story 2 - Review and settle balances (Priority: P1, Java Swing MVP)
+1. **Given** a pending expense, **when** its designated reviewer rejects it, **then** it is `REJECTED`, has no balance postings, and its status and outcome are visible.
+2. **Given** a full-product group with multiple required review levels, **when** only some levels approve, **then** the expense stays pending and out of balances. *(Full product only.)*
+3. **Given** a positive debt from A to B, **when** a permitted party records a payment of at most that debt, **then** the payment is in history and the debt falls by exactly that amount.
+4. **Given** a payment greater than the current debt, **when** it is recorded, **then** it is rejected and nothing changes.
+5. **Given** a pending MVP expense, **when** anyone other than its designated reviewer tries to approve or reject it, **then** the action is denied and nothing changes.
+6. **Given** two payment requests that each fit the debt but together exceed it, **when** they are submitted at the same time, **then** at most one succeeds and the other is rejected without changes.
+7. **Given** a payment or approval command sent twice with the same command ID, **when** the retry arrives, **then** the original result is returned and nothing is posted twice.
 
-A group member reviews submitted expenses, then any participant can record a
-payment made to another member. Members can check each pairwise balance after
-approved expenses and recorded payments.
+### User Story 3 — Track group activity and spending (P2, Java Swing MVP)
 
-**Why this priority**: Approval prevents unreviewed expenses from affecting
-balances, and payment tracking lets users close out what they owe.
+1. **Given** a member who is signed in when another member submits an expense, **then** that member gets an in-app notice identifying the group and the expense.
+2. **Given** a member who is signed out at submission time, **then** an email is queued for that member, and the in-app notice is there when they next sign in.
+3. **Given** expenses and payments, **when** a member picks an inclusive date range and group, member or activity-type filters, **then** the report shows only matching records and their summary, or a clear empty result.
 
-**Independent Test**: Submit an expense, have its designated reviewer other
-than the submitter approve it, record a payment between participants, and
-verify the balance changes.
+### User Story 4 — Use SplitSmart on supported platforms (P3, full product)
 
-**Acceptance Scenarios**:
+1. **Given** an account with group activity, **when** its owner signs in on the web product, **then** they reach the same authorized records and core operations.
+2. **Given** the same account, **when** its owner signs in on the Android or iOS app, **then** they reach the same authorized records and core operations.
 
-1. **Given** a pending expense, **When** its designated reviewer rejects it,
-   **Then** it remains excluded from balances and its status shows rejected.
-2. **Given** a full-product group with multiple required reviews, **When** only some
-   required reviewers approve it, **Then** it remains pending and excluded
-   from balances until all required reviews approve it.
-3. **Given** a positive balance owed between two members, **When** the debtor
-   records a payment to the creditor, **Then** the payment appears in their
-   history and the outstanding balance decreases by that amount.
-4. **Given** a payment greater than the amount owed, **When** the user attempts
-   to record it, **Then** the system rejects the payment without changing the
-   balance.
-5. **Given** a pending expense in the MVP, **When** a group member who was not
-   designated as its reviewer attempts to approve or reject it, **Then** the
-   system denies the action and the expense status and balances remain
-   unchanged.
+### Edge cases
 
----
+- An account is registered with an email already in use.
+- A non-member or signed-out user tries to read or change group data or a receipt.
+- An invitation is pending, declined or revoked before acceptance, or is accepted by a different identity.
+- An expense has a negative amount, no participants, duplicate participants, participants who are not active members, or an amount with more precision than the currency allows.
+- An approved zero-value expense creates zero shares and no postings.
+- The payer is the only participant (valid, no debt).
+- Percentages are negative, do not total exactly 100%, or have more decimal places than the configured limit.
+- Rounding leaves leftover minor units. Tied remainders are ordered alphabetically by name.
+- Two participants have identical names and the leftover cut falls between them (rejected, OD-01).
+- The submitter tries to review their own expense, or the manager designates an ineligible reviewer.
+- Two review decisions for the same expense arrive at the same time.
+- A rejected expense is later corrected (no edit, OD-09).
+- A payment is zero, negative, or above the current debt.
+- A member is removed while an expense they are involved in is being submitted or reviewed.
+- A report has an empty range (start after end) or no matching activity.
+- A receipt is missing, unreadable, unsupported, or not available from storage.
+- An email delivery fails repeatedly.
 
-### User Story 3 - Track group activity and spending (Priority: P2, Java Swing MVP)
+## Requirements
 
-A user receives notice when another group member submits an expense and views
-expense, balance, and payment summaries for the group or a chosen date range.
+### Functional requirements
 
-**Why this priority**: Notifications help members stay aware of activity, while
-reports make group spending and settlement history understandable.
+- **FR-001 (Java Swing MVP)**: Each person MUST be able to create an individual account with a unique, verified email address, sign in with a password and an authenticator-app code, and see only their own account information and the groups they are authorized for. The system MUST issue one-use recovery codes for users who lose their authenticator app. An account MUST NOT reach any group data until the email is verified and MFA enrollment is complete.
+- **FR-002 (Java Swing MVP)**: A signed-in user MUST be able to create a group and manage its members. Only a group manager may invite or remove members. An invited person MUST accept the invitation before becoming a member or getting any access. *[INTERIM]* A removed member loses access to the group (OD-14). A removal that would leave unsettled balances or pending expenses involving the member is refused until OD-14 is decided.
+- **FR-003 (Java Swing MVP)**: A group member MUST be able to submit an expense with a nonnegative amount in the group currency, a date, a description, a split method, exactly one payer and one or more distinct participants who are active group members. The payer MAY be a participant. Only the other participants' shares are owed to the payer. A zero-value expense MUST be accepted and MUST NOT change any balance. Negative amounts MUST be rejected.
+- **FR-004 (Java Swing MVP)**: The system MUST support equal and percentage splits. Percentages MUST total exactly 100% and MUST NOT be negative. Shares MUST reconcile exactly to the expense total at the currency's minor unit. Leftover minor units MUST be assigned by the largest-remainder method, with equal remainders ordered alphabetically by participant name. If participants with identical names would make that order decide who gets a unit, the system MUST reject the allocation and explain why, until OD-01 is decided. Shares MUST be computed once at submission and stored.
+- **FR-005 (Java Swing MVP)**: The submitter MAY attach one optional receipt image. Authorized group members MUST be able to view it with the expense. Receipts MUST be stored privately, and every read MUST be authorized by the server.
+- **FR-006 (Java Swing MVP: exactly one review level; full product: configurable levels)**: A submitted expense MUST stay `PENDING_REVIEW` and outside balances until the required decision is made. In the Swing MVP the group manager MUST designate exactly one reviewer for each expense. The reviewer MUST be an active member and MUST NOT be the submitter. Only that reviewer may approve or reject the expense. A standing group default MAY prefill the designation but MUST be confirmed for the expense, and it is never a source of review authority. Approval and rejection are terminal. In the full product, a group MAY configure several required review levels, and the expense stays pending until all of them approve.
+- **FR-007 (Java Swing MVP)**: When an expense is submitted, the system MUST create a durable in-app notice identifying the group and the expense for each other active member. It MUST also queue an email for each such member who is signed out at the moment the submission commits. Notice and email-intent creation MUST commit in the same transaction as the submission and MUST be idempotent. The expense MUST remain visible in group activity to all members. Approval and rejection notices are not required (OD-13).
+- **FR-008 (Java Swing MVP)**: The system MUST show each user's net balance owed to or due from every other user, derived only from approved expenses and recorded payments. For each approved expense, each non-payer participant owes their share to the payer. The payer's own share is not a debt. *[INTERIM]* Balances are per group (OD-05).
+- **FR-009 (Java Swing MVP)**: A permitted user MUST be able to record a payment between two group members with payer, recipient, amount, date and an optional description. A payment MAY be less than the outstanding debt and MUST NOT exceed it. An overpayment MUST be rejected without any change. Accepting the payment and posting it MUST be atomic, idempotent, and serialized against other changes to the same debt. Payments are never edited or deleted. *[INTERIM]* Only the debtor or the creditor may record a payment (OD-06). Zero and negative payments are rejected (OD-07). Corrections are not supported (OD-08).
+- **FR-010 (Java Swing MVP)**: The system MUST provide summaries of expenses, balances and payments for a group and for an individual user, limited to groups the user may access.
+- **FR-011 (Java Swing MVP)**: A user MUST be able to create a filtered report with an inclusive date range plus group, member and activity-type filters, showing only matching activity. *[INTERIM]* Expenses are filtered by expense date and payments by payment date. Dates are calendar dates with no time zone conversion. Balances are labelled "current". (OD-20)
+- **FR-012 (Full product)**: SplitSmart MUST be available primarily as a web product and also as Android and iOS applications. The Swing MVP is a separate desktop deliverable and does not satisfy this requirement.
 
-**Independent Test**: Submit an expense as one member, confirm signed-in group
-members see an in-app notification and signed-out members receive an email,
-and view a summary for a date range containing the expense and a payment.
+### Customer requirement inventory
 
-**Acceptance Scenarios**:
-
-1. **Given** a group member is signed in, **When** another member submits an
-   expense to that group, **Then** the member sees a notification identifying
-   the group and expense.
-2. **Given** a group with expenses, balances, and payments, **When** a member
-   selects a date range and report filters, **Then** the report shows only
-   matching records and summarizes the selected records.
-3. **Given** a group member is signed out when an expense is submitted,
-   **When** the expense is submitted, **Then** the member receives an email
-   and the notice remains available in-app after the member signs in.
-
----
-
-### User Story 4 - Use SplitSmart on supported platforms (Priority: P3, full product)
-
-A user accesses the same account and expense information through the primary
-web product or the Android and iOS apps.
-
-**Why this priority**: The customer requires web as the primary product and
-Android and iOS apps, beyond the Java Swing desktop MVP.
-
-**Independent Test**: Sign in on each supported product and verify that the
-same authorized groups, expenses, balances, payments, and reports are
-available.
-
-**Acceptance Scenarios**:
-
-1. **Given** an account with existing group activity, **When** its owner signs
-   in on the web product, **Then** the owner can access the same authorized
-   records and core operations.
-2. **Given** an account with existing group activity, **When** its owner signs
-   in on the Android or iOS app, **Then** the owner can access the same
-   authorized records and core operations.
-
-### Edge Cases
-
-- A user attempts to create an account with an identity already in use.
-- A user who is not a group member attempts to view or change that group's data.
-- An invitation is pending, declined, or revoked before it is accepted.
-- An expense has a negative amount, no participants, or participants
-  who are not members of its group.
-- An approved zero-value expense produces zero-value shares and does not
-  change any balance.
-- Percentage shares are negative, exceed 100% in total, or are supplied with
-  more precision than the currency can represent.
-- Equal or percentage splits produce a fractional minor currency unit.
-- An expense submitter attempts to approve their own expense.
-- A rejected expense is later edited and resubmitted.
-- A payment is zero, negative, or exceeds the current debt between its parties.
-- A report has an empty date range or no matching activity.
-- A receipt image is missing, unreadable, or an unsupported image type.
-- A notification recipient is signed out when an expense is submitted.
-
-## Requirements *(mandatory)*
-
-### Functional Requirements
-
-The inventory below preserves every feature in `UserRequirement.md`. The
-**Java Swing MVP** label identifies the initial desktop scope; **full product**
-denotes a customer requirement beyond that initial scope.
-
-- **FR-001 (Java Swing MVP)**: The system MUST allow each person to create an
-  individual account with a unique, verified email address, sign in using a
-  password and an authenticator-app code, and access only their own account
-  information and authorized group information. The system MUST provide
-  recovery codes for users who lose access to their authenticator app.
-- **FR-002 (Java Swing MVP)**: The system MUST allow a signed-in user to create
-  a group and manage its members. Only a group manager may invite or remove
-  members. An invited person MUST accept the invitation before becoming a
-  member or gaining access to the group.
-- **FR-003 (Java Swing MVP)**: The system MUST allow a group member to submit
-  an expense with a nonnegative amount, date, description, split
-  method, one payer, and one or more participating group members. The payer
-  MAY be explicitly listed as a participant; only the other participants'
-  allocated shares are owed to the payer. A zero-value expense MUST be
-  accepted and MUST NOT change any balance when approved.
-- **FR-004 (Java Swing MVP)**: The system MUST support equal and percentage
-  expense splits. Percentage shares MUST total exactly 100%; the resulting
-  participant shares MUST reconcile exactly to the expense total at the
-  currency's minor unit. When rounding creates leftover minor units, the
-  system MUST allocate them by the largest-remainder method, with ties
-  resolved alphabetically by participant name.
-- **FR-005 (Java Swing MVP)**: The system MUST allow an expense submitter to
-  attach an optional receipt image and show that image with the expense.
-- **FR-006 (Java Swing MVP: exactly one review level; full product: configurable
-  review levels)**: A submitted expense MUST await review before affecting
-  balances. In the Java Swing MVP, the group manager MUST designate exactly
-  one reviewer for the expense; that reviewer MUST NOT be its submitter. The
-  designated reviewer MUST approve or reject it. In the full product, a group
-  MAY configure multiple required review levels. The expense MUST remain
-  pending until the required approval decision or decisions are complete;
-  rejection MUST prevent it from affecting balances.
-- **FR-007 (Java Swing MVP)**: When an expense is submitted, the system MUST
-  notify the other members of that group. A notification MUST identify the
-  group and expense, remain available in-app to all group members, and be sent
-  by email to members who are signed out when it is submitted.
-- **FR-008 (Java Swing MVP)**: The system MUST show each user's net balance
-  owed to or due from every other user, based on approved expenses and
-  recorded payments only. For each approved expense, participants other than
-  the payer owe their allocated shares to the payer; a payer listed as a
-  participant does not owe their own share.
-- **FR-009 (Java Swing MVP)**: The system MUST allow a user to record a
-  payment between group members, including payer, recipient, amount, date,
-  and optional description. A payment MAY be less than the outstanding debt
-  but MUST NOT exceed it. The system MUST update the corresponding balance
-  by the payment amount and retain the payment in history.
-- **FR-010 (Java Swing MVP)**: The system MUST provide summaries of expenses,
-  balances, and payments for a group and for an individual user.
-- **FR-011 (Java Swing MVP)**: The system MUST allow a user to create a
-  filtered report using a specified inclusive date range and additional
-  parameters, including group, member, and activity type, and show only
-  matching activity.
-- **FR-012 (Full product)**: SplitSmart MUST be available primarily as a
-  web-based product and also as applications for Android and iOS. The Java
-  Swing MVP is a separate desktop deliverable and does not satisfy this
-  customer platform requirement.
-
-### Customer Requirement Inventory
-
-| Original customer feature | Requirement IDs | Scope |
+| Customer feature (UserRequirement.md) | Requirement IDs | Scope |
 |---|---|---|
-| User accounts and access to personal expenses and balances | FR-001 | Java Swing MVP |
-| Group creation and member management | FR-002 | Java Swing MVP |
-| Expense details, equal/percentage splits, optional receipt, and participants | FR-003–FR-005 | Java Swing MVP |
-| Notifications when another group member creates an expense | FR-007 | Java Swing MVP |
-| Expense review and approval before balance changes | FR-006 | Single level in MVP; configurable levels in full product |
-| Balance owed by each user to every other user | FR-008 | Java Swing MVP |
-| Recording payments to settle balances | FR-009 | Java Swing MVP |
-| Expense, balance, and payment reports, including date ranges and filters | FR-010–FR-011 | Java Swing MVP |
-| Primary web product and Android and iOS apps | FR-012 | Full product, outside desktop MVP |
+| User accounts and access to own expenses and balances | FR-001, NFR-001 | Swing MVP |
+| Group creation and member management | FR-002 | Swing MVP |
+| Expense details, equal/percentage split, optional receipt, participants | FR-003, FR-004, FR-005 | Swing MVP |
+| Notification when another member creates an expense | FR-007 | Swing MVP |
+| Review and approval before balances change; single or multiple levels | FR-006 | One level in MVP; configurable levels in full product |
+| Balance owed by each user to every other user | FR-008 | Swing MVP |
+| Recording payments to settle balances | FR-009 | Swing MVP |
+| Reports and summaries, custom date ranges and parameters | FR-010, FR-011 | Swing MVP |
+| Primary web product plus Android and iOS apps | FR-012, NFR-005 | Full product |
 
-### Non-Functional Requirements
+### Non-functional requirements
 
-- **NFR-001**: The system MUST prevent a user from viewing or changing another
-  user's private account information or groups they do not belong to. Account
-  access MUST require a verified email address, password, and
-  authenticator-app code. Users MUST be provided recovery codes if they lose
-  access to their authenticator app.
-- **NFR-002**: All displayed expense shares and balances MUST use the
-  applicable currency precision, and displayed shares MUST reconcile to their
-  expense total without unexplained residual amounts.
-- **NFR-003**: For a group of up to 50 members and 10,000 recorded expenses,
-  at least 95% of ordinary group, balance, and report views MUST be displayed
-  within 2 seconds under normal operating conditions.
-- **NFR-004**: A member who has access to a group MUST be able to identify
-  whether an expense is pending, approved, or rejected and see its submitter
-  and review outcome.
-- **NFR-005**: The web, Android, and iOS products MUST provide the core
-  account, group, expense, balance, payment, notification, approval, and
-  reporting capabilities defined in the functional requirements.
+- **NFR-001 (Swing MVP)**: The server MUST authenticate every request and authorize every operation and receipt read against the resource. A user MUST NOT see or change another user's private account data or a group they do not belong to. Access requires a verified email, a password and an authenticator-app code, with one-use recovery codes. These controls are required and are specified for security review: salted adaptive password hashing, TOTP replay prevention, encrypted MFA secrets with managed key custody, server-side session expiry and revocation, rate limiting of authentication steps, encrypted client-server transport, and logs that never contain secrets. Algorithm parameters are not approved (OD-18). No certification is claimed.
+- **NFR-002 (Swing MVP)**: All money MUST use `BigDecimal` exact arithmetic. `float` and `double` MUST NOT be used for money. Each group has one currency, and every amount has exactly that currency's minor-unit scale. Input with more precision is rejected, never rounded. Displayed shares MUST reconcile to the expense total with no unexplained residual. The currency catalogue, scale source, amount bounds and percentage precision are configuration that needs approval (OD-03, OD-04). Group creation fails if no approved catalogue is configured.
+- **NFR-003 (Swing MVP)**: For a group of up to 50 members and 10,000 recorded expenses, at least 95% of ordinary group, balance and report views MUST be displayed within 2 seconds under normal operating conditions. The workload, hardware, concurrency, network and measurement boundary are acceptance-test parameters still to be approved (OD-21).
+- **NFR-004 (Swing MVP)**: A member with access to a group MUST be able to see whether an expense is pending, approved or rejected, plus its submitter, designated reviewer and review outcome.
+- **NFR-005 (Full product)**: The web, Android and iOS products MUST provide the core account, group, expense, balance, payment, notification, approval and reporting capabilities above.
+- **NFR-006 (Swing MVP, financial integrity)**: Financial history MUST be append-only and is the source of truth for balances. Each state-changing command MUST carry a stable command ID and be idempotent. Concurrent changes MUST NOT cause lost updates, double postings or a combined overpayment. A failed command MUST leave no partial financial state. Any balance projection MUST be updated atomically with the ledger and be rebuildable from it.
 
-### Acceptance Criteria
+### Acceptance criteria
 
-- **AC-001 (FR-001, FR-002)**: A newly registered user can sign in, create a
-  group after verifying their email and completing multi-factor
-  authentication with an authenticator-app code, invite another account, and
-  see the invitation as pending; the invitee gains group access only after
-  accepting; an unrelated account cannot view or modify the group.
-- **AC-002 (FR-003, FR-005)**: A valid expense with an optional receipt is
-  shown with its amount, date, description, payer, participants, split method,
-  and receipt when supplied; when the payer is a participant, only the other
-  participants owe their allocated shares to the payer. A zero-value expense
-  is accepted and does not change balances; negative amounts and other
-  invalid expense data are rejected.
-- **AC-003 (FR-004)**: Equal splits allocate the expense across selected
-  participants; percentage splits that total exactly 100% allocate the full
-  amount. Percentages not totaling 100% are rejected, and rounding never
-  leaves the allocated shares unequal to the expense total. Any leftover
-  minor units go to the participants with the largest fractional remainders;
-  tied remainders go alphabetically by participant name.
-- **AC-004 (FR-006, FR-007, FR-008)**: A submitted expense is pending and
-  excluded from balances; only its designated reviewer, who is not the
-  submitter, can approve it; the group manager designates exactly one
-  reviewer in the MVP and all configured reviews are needed in the full
-  product before balances change;
-  rejection prevents balance changes; group members can see the in-app notice
-  and signed-out members receive email.
-- **AC-005 (FR-009)**: Recording a valid payment adds it to payment history
-  and decreases the corresponding debt by precisely the payment amount.
-  Partial payments are accepted; a payment above the current debt is rejected
-  without changing the balance.
-- **AC-006 (FR-010, FR-011)**: A report includes expense, balance, and payment
-  summaries; selecting an inclusive date range and group, member, or activity
-  type filters excludes non-matching activity and returns a clear empty
-  result when no activity matches.
-- **AC-007 (FR-012, NFR-005)**: The product is available through the web,
-  Android, and iOS experiences, and an account's authorized core records and
-  capabilities remain consistent across them.
-- **AC-008 (NFR-001)**: A non-member and a signed-out user cannot view private
-  group activity; authorized members can view only their permitted group
-  information.
-- **AC-009 (NFR-002, NFR-004)**: Representative equal and percentage splits,
-  including rounding cases, reconcile exactly; an expense's status and review
-  outcome are visible to authorized group members.
-- **AC-010 (NFR-003)**: In a performance test using the stated group and
-  expense volume, at least 95 out of 100 ordinary group, balance, and report
-  views complete within 2 seconds.
+- **AC-001 (FR-001, FR-002)**: A new user verifies their email, enrols an authenticator app, receives recovery codes once, signs in with password and code, creates a group and invites another account. The invitation shows as pending, the invitee gets access only after accepting, and an unrelated account cannot read or change the group. A used recovery code cannot be used again, and a TOTP code cannot be replayed.
+- **AC-002 (FR-003, FR-005)**: A valid expense with an optional receipt shows amount, date, description, payer, participants, split method and receipt. If the payer participates, only the others owe their shares. A zero-value expense is accepted and changes no balance. Negative amounts and invalid data are rejected. A non-member cannot fetch the receipt.
+- **AC-003 (FR-004)**: Equal and percentage splits reconcile exactly. Percentages not totalling exactly 100% are rejected. Leftover units go to the largest remainders, and equal remainders go alphabetically by name. An identical-name tie that changes the result is rejected with an explanation.
+- **AC-004 (FR-006, FR-007, FR-008)**: A submitted expense is pending and out of balances. The manager designates exactly one reviewer, who is not the submitter. Only that reviewer can decide. Approval posts once. Rejection posts nothing. Other members get an in-app notice and signed-out members get an email intent. In the full product, all configured levels must approve.
+- **AC-005 (FR-009, NFR-006)**: A valid payment is added to history and lowers the debt by exactly its amount. Partial payments are accepted. An overpayment, including a combined overpayment from concurrent requests, is rejected with no change. A replayed command does not post twice.
+- **AC-006 (FR-010, FR-011)**: A report includes expense, balance and payment summaries. The inclusive date range and the group, member and activity-type filters exclude non-matching activity. No match gives a clear empty result.
+- **AC-007 (FR-012, NFR-005)**: The product is available on web, Android and iOS with consistent authorized records and capabilities. *(Full product.)*
+- **AC-008 (NFR-001)**: Non-members and signed-out users cannot read private group activity or receipts. Authorized members see only what they are allowed to see. Logs contain no passwords, TOTP secrets or codes, recovery codes or session tokens.
+- **AC-009 (NFR-002, NFR-004)**: The representative split vectors reconcile exactly. Status, submitter, reviewer and outcome are visible to authorized members.
+- **AC-010 (NFR-003)**: Under the approved performance profile, at least 95 of 100 ordinary group, balance and report views complete within 2 seconds.
+- **AC-011 (NFR-006)**: Fault injection between the decision and posting rolls back both. Rebuilding balances from the ledger matches any projection.
 
-### Java Swing MVP Subset
+## Key entities
 
-The initial MVP is the Java Swing desktop experience covering **FR-001
-through FR-011** and **NFR-001 through NFR-004**: accounts, group membership,
-expense entry and receipt attachment, equal and percentage splits, exactly
-one review level, notifications, pairwise balances, payments, and
-date-filtered and filtered summaries. Notifications remain available in-app
-to all group members, and signed-out members receive email. Multiple review levels
-are a full-product capability; the MVP has exactly one review level.
-**FR-012 and NFR-005 remain full-product requirements**: the
-desktop MVP does not deliver or claim web, Android, or iOS support. This
-boundary does not remove those original customer requirements.
+User account, MFA enrollment, recovery code, session, group, membership, invitation, expense, expense share, reviewer assignment, review record, receipt reference, ledger entry, payment, notification, email outbox message, processed command, audit record. See `design/final/data-model.md`.
 
-## Key Entities
+## Success criteria
 
-- **User account**: A person's identity and private account information.
-- **Group**: A shared expense context with a creator/manager, member users,
-  and pending invitations.
-- **Expense**: A submitted monetary event with payer, date, description,
-  participants, split method, optional receipt, and review status.
-- **Expense share**: One participant's assigned amount and, for percentage
-  splits, their assigned percentage of an expense.
-- **Review**: An approval or rejection decision for a submitted expense,
-  including reviewer and decision date.
-- **Notification**: A notice to group members about a newly submitted
-  expense.
-- **Balance**: The net amount one user owes another after approved expenses
-  and recorded payments.
-- **Payment**: A recorded transfer between group members with amount, date,
-  payer, and recipient.
-- **Report**: A summary of expense, balance, and payment activity for a
-  selected user, group, and date range.
-
-## Success Criteria *(mandatory)*
-
-### Measurable Outcomes
-
-- **SC-001**: At least 90% of first-time test users can create an account, join
-  a group, and submit a valid expense within 5 minutes without assistance.
-- **SC-002**: In all acceptance tests, approved equal and percentage expense
-  shares reconcile exactly to the original expense amount at the currency's
-  minor unit.
-- **SC-003**: In all acceptance tests, pending and rejected expenses do not
-  change balances; approved expenses and valid payments produce the expected
-  pairwise balances.
-- **SC-004**: At least 95 of 100 ordinary group, balance, and report views for
-  the stated test volume complete within 2 seconds.
-- **SC-005**: Test users can identify the status, submitter, payer, participants,
-  and share of a selected expense in at least 90% of usability test attempts.
-- **SC-006**: The full product passes the same core account and expense
-  acceptance scenarios on web, Android, and iOS.
+- **SC-001**: At least 90% of first-time test users can create an account, join a group and submit a valid expense within 5 minutes without help.
+- **SC-002**: In all acceptance tests, approved equal and percentage shares reconcile exactly to the expense amount at the minor unit.
+- **SC-003**: In all acceptance tests, pending and rejected expenses do not change balances, and approved expenses and valid payments produce the expected pairwise balances.
+- **SC-004**: At least 95 of 100 ordinary group, balance and report views complete within 2 seconds under the approved profile.
+- **SC-005**: Test users identify the status, submitter, payer, participants and share of a selected expense in at least 90% of usability attempts.
+- **SC-006**: The full product passes the same core account and expense acceptance scenarios on web, Android and iOS.
 
 ## Assumptions
 
-- A group uses one currency for its expenses and balances; foreign exchange
-  conversion is not included.
-- An expense has one payer and one or more participating members. The payer
-  participates only when explicitly selected; all other participants owe
-  their allocated shares to the payer. Zero-value expenses are allowed and
-  do not change balances; negative amounts are rejected.
-- Equal and percentage split rounding use the largest-remainder method;
-  ties are resolved alphabetically by participant name so the result is
-  deterministic and the total reconciles.
-- The MVP uses one review decision per expense; the full product can configure
-  multiple required review levels by group. A submitter cannot approve their
-  own expense. Rejected expenses do not affect balances.
-- Notifications identify the group and expense, remain available in-app to
-  all group members, and are emailed to members who are signed out when an
-  expense is submitted.
-- An expense date-range filter includes both its start and end dates.
-- Reports can be filtered by group, member, and activity type in addition to
-  an inclusive date range. Reports are viewed in the product; exporting or
-  sharing report files is not required.
-- Users have an internet connection when using the product. Offline entry and
-  synchronization are not included.
-- The MVP is desktop-only and implemented with Java Swing; web, Android, and
-  iOS are required for the full product but are outside the MVP deliverable.
-- The response-time and usability thresholds in this specification are
-  proposed acceptance targets, not values supplied by the customer.
+- A group uses exactly one currency. There is no foreign exchange. [SOURCE]
+- Users are online. Offline entry and sync are not included. [SOURCE]
+- Reports are viewed in the product. Export is not required. [SOURCE]
+- Date-range filters include both the start and the end date. [SOURCE]
+- The 2-second / 95% target and the usability thresholds are proposed acceptance targets, not customer-supplied values. [SOURCE]
+- The Swing MVP is a desktop client of the shared server. Web, Android and iOS are full-product requirements. [SOURCE, HUMAN]
 
-## Open Questions
+## Open decisions
 
-- Which currencies and currency precision rules must the full product support?
-- How should rounding ties be resolved when participants have identical names?
-- Should removed group members retain access to historical group activity?
-- Are report exports, custom fields, or saved report definitions required?
-- Which image formats and maximum receipt image sizes should be accepted?
-- What data retention, account recovery, and account deletion policies should
-  apply?
+The full register, with owner, impact, interim behaviour and decision gate, is in `design/final/decisions.md` §3: OD-01 to OD-28. The decisions that block implementation are OD-01 (identical names), OD-03 (currency catalogue), OD-05 (balance scope), OD-12 (meaning of "signed out"), OD-18 (security parameters) and OD-23 (database).

@@ -1,0 +1,40 @@
+@startuml sequence-payment-settlement
+title SplitSmart — Sequence: Payment Settlement with Concurrent Overpayment
+autonumber
+
+actor "Debtor A" as A
+participant "Swing client" as UI
+box "Shared application server" #EEEEFF
+  participant "API adapter" as API
+  participant "PaymentService" as PS
+  participant "PaymentPolicy /\nAccessPolicy" as POL
+end box
+database "Database" as DB
+
+A -> UI : record payment A -> B, 30.00
+UI -> API : recordPayment(cmd1, A, B, 30.00)
+API -> PS : record(principal, cmd1)
+PS -> DB : processed_command(cmd1)?
+DB --> PS : none
+PS -> POL : caller is payer or recipient,\nboth active members
+PS -> DB : begin; acquire LedgerHead(group)
+PS -> DB : outstanding(A -> B) from ledger
+DB --> PS : 50.00
+PS -> DB : insert Payment; insert LedgerEntry(PAYMENT,\ndebtor=B, creditor=A, 30.00);\nbump head; processed_command; audit
+PS -> DB : commit
+PS --> UI : payment recorded, outstanding 20.00
+
+== concurrent second request (cmd2, 30.00) waited on LedgerHead ==
+PS -> DB : begin; acquire LedgerHead(group)
+PS -> DB : outstanding(A -> B) from ledger
+DB --> PS : 20.00
+PS -> DB : rollback (no payment, no posting)
+PS --> UI : OverpaymentRejected(outstanding 20.00)
+
+== client retry of cmd1 after a lost response ==
+UI -> API : recordPayment(cmd1, same data)
+API -> PS : record(principal, cmd1)
+PS -> DB : processed_command(cmd1)?
+DB --> PS : found, same fingerprint
+PS --> UI : original result (no second posting)
+@enduml

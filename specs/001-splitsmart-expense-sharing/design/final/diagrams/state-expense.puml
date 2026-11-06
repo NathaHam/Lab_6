@@ -1,0 +1,31 @@
+@startuml state-expense
+title SplitSmart — Expense Lifecycle (Swing MVP)
+
+[*] --> PENDING_REVIEW : submit\n[valid, shares allocated,\nno ledger postings]
+
+state PENDING_REVIEW {
+  [*] --> UNASSIGNED
+  UNASSIGNED --> ASSIGNED : manager designates reviewer\n[active member, != submitter]
+  ASSIGNED --> ASSIGNED : manager re-designates\n[undecided; OD-10]
+}
+
+ASSIGNED --> APPROVED : assigned reviewer approves\n/ post non-payer shares once\n(same transaction)
+ASSIGNED --> REJECTED : assigned reviewer rejects\n/ no postings
+
+APPROVED --> [*]
+REJECTED --> [*]
+
+note right of PENDING_REVIEW
+  Excluded from balances.
+  Visible to members with submitter,
+  reviewer and status (NFR-004).
+  Approve/reject leave only from ASSIGNED.
+end note
+note right of APPROVED
+  Terminal. Never edited or reopened.
+  Correction policy is open (OD-09).
+end note
+note right of REJECTED
+  Terminal. Never posts.
+end note
+@enduml

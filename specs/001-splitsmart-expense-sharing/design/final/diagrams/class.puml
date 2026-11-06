@@ -1,0 +1,179 @@
+@startuml class
+title SplitSmart — Domain Model (logical, Swing MVP)
+hide empty members
+skinparam classAttributeIconSize 0
+
+package "value objects (immutable records)" {
+  class Money <<value>> {
+    amount : BigDecimal
+    currency : CurrencyUnit
+    toMinorUnits() : BigInteger
+    {static} ofMinorUnits(BigInteger, CurrencyUnit) : Money
+  }
+  class CurrencyUnit <<value>> {
+    code : String
+    minorDigits : int
+  }
+  class Percentage <<value>> {
+    value : BigDecimal
+  }
+  class DateRange <<value>> {
+    start : LocalDate
+    end : LocalDate
+  }
+  class ParticipantName <<value>> {
+    snapshot : String
+  }
+  class "UserId / GroupId / ExpenseId /\nPaymentId / CommandId / ReceiptKey" as Ids <<value>>
+}
+
+class UserAccount <<aggregate>> {
+  id : UserId
+  email : EmailAddress
+  status : AccountStatus
+  version : int
+}
+class MfaEnrollment {
+  secretCiphertext : bytes
+  keyId : String
+  lastAcceptedStep : long
+}
+class RecoveryCode {
+  verifier : String
+  usedAt : Instant
+}
+
+class Group <<aggregate>> {
+  id : GroupId
+  currency : CurrencyUnit
+  defaultReviewerId : UserId [0..1]
+  version : int
+}
+class Membership {
+  userId : UserId
+  role : MemberRole
+  removedAt : Instant [0..1]
+}
+class Invitation {
+  inviteeEmail : EmailAddress
+  status : InvitationStatus
+}
+
+class Expense <<aggregate>> {
+  id : ExpenseId
+  submitterId : UserId
+  payerId : UserId
+  amount : Money
+  expenseDate : LocalDate
+  description : String
+  splitMethod : SplitMethod
+  status : ExpenseStatus
+  version : int
+  approve(reviewer : UserId) : List<LedgerEntry>
+  reject(reviewer : UserId, reason : String)
+}
+class ExpenseShare {
+  participantId : UserId
+  name : ParticipantName
+  percentage : Percentage [0..1]
+  share : Money
+  allocationRank : int
+}
+class ReviewerAssignment {
+  reviewerId : UserId
+  assignedBy : UserId
+}
+class ReviewRecord {
+  level : int = 1
+  decision : ReviewDecision
+  reviewerId : UserId
+}
+
+class Payment <<aggregate>> {
+  id : PaymentId
+  payerId : UserId
+  recipientId : UserId
+  amount : Money
+  paymentDate : LocalDate
+}
+class LedgerHead <<aggregate>> {
+  groupId : GroupId
+  sequence : long
+}
+class LedgerEntry <<append-only>> {
+  debtorId : UserId
+  creditorId : UserId
+  amount : Money
+  source : LedgerSource
+  sourceId : Ids
+  sequence : long
+}
+class Notification {
+  type = EXPENSE_SUBMITTED
+  recipientId : UserId
+  readAt : Instant [0..1]
+}
+class EmailOutboxMessage {
+  status : OutboxStatus
+  attempts : int
+  leaseUntil : Instant [0..1]
+}
+
+class ShareAllocator <<service>> {
+  allocate(Money, SplitMethod, participants, percentages) : List<ExpenseShare>
+}
+interface TieBreakPolicy
+interface NameOrdering
+interface ReviewPolicy {
+  canDecide(Expense, UserId) : boolean
+  isComplete(Expense) : boolean
+}
+interface PaymentPolicy
+class SingleDesignatedReviewerPolicy
+class FailClosedOnIdenticalNames
+
+enum ExpenseStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+enum SplitMethod {
+  EQUAL
+  PERCENTAGE
+}
+
+UserAccount "1" *-- "0..1" MfaEnrollment
+UserAccount "1" *-- "*" RecoveryCode
+Group "1" *-- "1..*" Membership
+Group "1" *-- "*" Invitation
+Group "1" -- "1" LedgerHead
+Group "1" -- "*" Expense
+Expense "1" *-- "1..*" ExpenseShare
+Expense "1" *-- "0..1" ReviewerAssignment
+Expense "1" *-- "0..1" ReviewRecord
+Group "1" -- "*" Payment
+LedgerHead "1" -- "*" LedgerEntry : orders
+Expense "1" ..> "0..*" LedgerEntry : posts on approval
+Payment "1" ..> "1" LedgerEntry : counter-posting
+Expense "1" -- "*" Notification
+Notification "1" -- "0..1" EmailOutboxMessage
+ShareAllocator ..> TieBreakPolicy
+ShareAllocator ..> NameOrdering
+ShareAllocator ..> ExpenseShare : creates
+SingleDesignatedReviewerPolicy ..|> ReviewPolicy
+FailClosedOnIdenticalNames ..|> TieBreakPolicy
+Expense ..> ReviewPolicy
+Payment ..> PaymentPolicy
+Expense --> ExpenseStatus
+Expense --> SplitMethod
+Money --> CurrencyUnit
+
+note bottom of Group
+  defaultReviewerId only prefills the
+  per-expense ReviewerAssignment (HD-06)
+end note
+note bottom of LedgerEntry
+  amount > 0; payer's own share never posted;
+  pending/rejected expenses never post
+end note
+@enduml

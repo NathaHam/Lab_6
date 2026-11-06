@@ -1,0 +1,81 @@
+@startuml component
+title SplitSmart — Components and Dependency Direction
+skinparam componentStyle rectangle
+
+package "User desktop (untrusted)" {
+  [Swing views] as Views
+  [Presenters] as Presenters
+  [ServerGateway\n(transport adapter, OD-24)] as Gateway
+  [contract\n(DTOs, operations)] as ContractC
+}
+
+package "Shared application server (trust boundary)" {
+  [API adapter\n(session -> Principal)] as Api
+  package "application" {
+    [Account / Auth services] as AuthSvc
+    [Group service] as GroupSvc
+    [Expense / Review services] as ExpSvc
+    [Payment service] as PaySvc
+    [Balance / Report queries] as QrySvc
+    [Receipt service] as RcpSvc
+    [AccessPolicy] as Access
+    [UnitOfWork + idempotency] as Uow
+    [Outbox dispatcher] as Dispatcher
+  }
+  package "domain" {
+    [Value objects + aggregates] as Model
+    [ShareAllocator\nTieBreakPolicy / NameOrdering] as Alloc
+    [ReviewPolicy\nPaymentPolicy] as Policies
+    [Ledger rules] as Ledger
+  }
+  package "infrastructure adapters" {
+    [Repositories] as Repo
+    [PasswordHasher / TOTP /\nSecretCipher / Sessions] as Sec
+    [ReceiptStore adapter] as RcpAd
+    [EmailGateway adapter] as MailAd
+    [Clock / IdGenerator] as Clock
+  }
+}
+
+database "Database\n(vendor not selected, OD-23)" as DB
+cloud "Receipt storage\n(provider not selected)" as Store
+cloud "Email provider\n(not selected)" as Mail
+cloud "Key management\n(OD-18)" as KMS
+
+Views --> Presenters
+Presenters --> Gateway
+Gateway --> ContractC
+Gateway --> Api : encrypted channel
+Api --> AuthSvc
+Api --> GroupSvc
+Api --> ExpSvc
+Api --> PaySvc
+Api --> QrySvc
+Api --> RcpSvc
+ExpSvc --> Access
+PaySvc --> Access
+QrySvc --> Access
+RcpSvc --> Access
+GroupSvc --> Access
+ExpSvc --> Uow
+PaySvc --> Uow
+ExpSvc --> Alloc
+ExpSvc --> Policies
+PaySvc --> Ledger
+PaySvc --> Policies
+Alloc --> Model
+Ledger --> Model
+Repo ..|> Uow : implements ports
+Sec ..> AuthSvc : implements ports
+RcpAd ..> RcpSvc : implements port
+MailAd ..> Dispatcher : implements port
+Repo --> DB
+RcpAd --> Store
+MailAd --> Mail
+Sec --> KMS
+Dispatcher --> Repo
+note bottom of Views
+  No business rules, no DB credentials,
+  no float/double for money (HD-02)
+end note
+@enduml

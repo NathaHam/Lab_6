@@ -1,0 +1,43 @@
+@startuml sequence-notification
+title SplitSmart — Sequence: Submission Notice and Email Outbox (FR-007)
+autonumber
+
+participant "ExpenseService\n(submit transaction)" as SVC
+database "Database" as DB
+participant "Outbox dispatcher\n(server task)" as DISP
+participant "EmailGateway port" as GW
+participant "Email provider\n(not selected)" as MAIL
+actor "Member M" as M
+
+SVC -> DB : active members except submitter\n(transaction snapshot)
+loop each recipient R
+  SVC -> DB : insert Notification(EXPENSE_SUBMITTED, R)\nUNIQUE(recipient, expense, type)
+  SVC -> DB : FULL session, unrevoked, unexpired\nat commit instant? (OD-12)
+  alt R is signed out
+    SVC -> DB : insert EmailOutboxMessage(PENDING)\nUNIQUE(notification, kind)
+  else R is signed in
+    note right of SVC : in-app notice only
+  end
+end
+SVC -> DB : commit together with the expense
+
+loop poll
+  DISP -> DB : claim PENDING row (CAS: status SENDING,\nleaseUntil, attempts+1)
+  DISP -> GW : send(messageId = outbox id, minimal content)
+  GW -> MAIL : deliver
+  alt accepted
+    DISP -> DB : status SENT
+  else transient failure
+    DISP -> DB : status PENDING, nextAttemptAt = backoff
+  else permanent failure or attempt limit
+    DISP -> DB : status FAILED (operator-visible)
+  end
+end
+
+M -> DB : signs in later (via server)
+DB --> M : unread in-app notice still available
+note over DISP, MAIL
+  At-least-once delivery; no exactly-once claim.
+  Email failure never rolls back the expense.
+end note
+@enduml

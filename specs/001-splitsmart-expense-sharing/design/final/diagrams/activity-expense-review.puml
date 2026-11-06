@@ -1,0 +1,56 @@
+@startuml activity-expense-review
+title SplitSmart — Activity: Expense Submit, Review, Approve/Reject
+
+|Submitter (Swing)|
+start
+:Enter amount, date, description,
+payer, participants, split method,
+optional receipt;
+:Send SubmitExpense(commandId);
+|Server|
+if (Same commandId already processed?) then (yes)
+  :Return stored result;
+  stop
+endif
+if (Active member, valid amount/currency/date,\ndistinct active-member participants?) then (no)
+  :Return ValidationFailed;
+  stop
+endif
+:Allocate shares (largest remainder,
+alphabetical ties);
+if (Identical-name tie crosses the cut?) then (yes)
+  :Return AmbiguousAllocation (OD-01);
+  stop
+endif
+:One transaction: expense PENDING_REVIEW (UNASSIGNED),
+shares, notices, email outbox for signed-out members,
+group version CAS, processed command, audit;
+|Manager (Swing)|
+:Designate one reviewer for this expense
+(default reviewer may only prefill);
+|Server|
+if (Reviewer active member and != submitter\nand expense undecided?) then (no)
+  :Return ReviewerIneligible;
+  stop
+endif
+:Save ReviewerAssignment (version check);
+|Reviewer (Swing)|
+:Approve or reject (expectedVersion);
+|Server|
+if (Caller is the assigned reviewer\nand version matches?) then (no)
+  :Return NotAssignedReviewer / StaleState;
+  stop
+endif
+if (Decision) then (approve)
+  :One transaction: acquire LedgerHead(group),
+  ReviewRecord APPROVE, status APPROVED,
+  ledger entries for non-payer nonzero shares,
+  processed command, audit;
+else (reject)
+  :One transaction: ReviewRecord REJECT,
+  status REJECTED, no ledger entries,
+  processed command, audit;
+endif
+:Return terminal status;
+stop
+@enduml
