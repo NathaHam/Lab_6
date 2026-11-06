@@ -1,0 +1,89 @@
+@startuml expense-review-activity
+' Expense submit / review / approve-reject activity (Claude proposal). See design.md section 4.
+title SplitSmart - Expense Submit, Review, Approve/Reject (MVP)
+skinparam shadowing false
+
+|Submitter (Swing)|
+start
+:Open "New expense" dialog;
+:Client generates CommandId;
+:Enter amount, date, description,\npayer, participants, split method,\npercentages (if PERCENTAGE);
+if (Attach receipt?) then (yes)
+  |Application server|
+  :uploadReceipt: size, magic bytes,\nImageIO decode, dimensions (OQ-08);
+  if (Receipt valid?) then (no)
+    |Submitter (Swing)|
+    :Show receipt error;
+    stop
+  else (yes)
+    :Store bytes in ReceiptStore\nreturn ReceiptRef;
+  endif
+else (no)
+endif
+|Submitter (Swing)|
+:Request split preview;
+|Application server|
+:ShareAllocator.allocate (no writes);
+|Submitter (Swing)|
+:Show shares (sum == amount);
+:Press Submit;
+|Application server|
+:AccessPolicy.requireMember;
+if (CommandId already processed?) then (yes)
+  :Return stored result;
+  stop
+else (no)
+endif
+:Validate: amount >= 0, scale, date,\ndescription, payer and participants are\nactive members, no duplicates;
+if (PERCENTAGE?) then (yes)
+  if (Percentages total exactly 100?) then (no)
+    :ValidationException;
+    stop
+  else (yes)
+  endif
+else (no)
+endif
+:Allocate shares (largest remainder,\nties alphabetical by name);
+if (Identical-name tie affects cut?) then (yes)
+  :AmbiguousAllocationException\n(OQ-01, fail closed);
+  stop
+else (no)
+endif
+partition "Single transaction" {
+  :Persist Expense (PENDING) + shares;
+  :Set reviewer = standing reviewer\nif set and not submitter (OQ-12);
+  :Create in-app notices for other members;
+  :Queue email for members with no\nactive FULL session;
+  :Record ProcessedCommand;
+}
+:Commit;
+|Group manager|
+if (Reviewer already set?) then (no)
+  :Designate reviewer\n(active member, not submitter);
+else (yes)
+endif
+|Designated reviewer|
+:Open review queue; inspect shares and receipt;
+if (Decision) then (approve)
+  |Application server|
+  :Check caller == designated reviewer;\ncheck expectedVersion;
+  partition "Single transaction" {
+    :Append ReviewRecord(APPROVE);
+    :Status := APPROVED;
+    :Post LedgerEntry per non-payer share > 0;
+    :Update PairBalance rows (locked in key order);
+  }
+  :Commit;
+else (reject)
+  |Application server|
+  :Check caller == designated reviewer;\ncheck expectedVersion;
+  partition "Single transaction" {
+    :Append ReviewRecord(REJECT);
+    :Status := REJECTED (no ledger entries);
+  }
+  :Commit;
+endif
+|Group member|
+:See status, submitter, reviewer,\nreview outcome (NFR-004);
+stop
+@enduml

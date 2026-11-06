@@ -1,0 +1,45 @@
+@startuml context
+' SplitSmart system context (Claude proposal). See architecture.md section 3.
+title SplitSmart - System Context and Trust Boundaries (proposal)
+left to right direction
+skinparam shadowing false
+
+actor "Individual user /\nGroup member" as User
+actor "Group manager" as Manager
+actor "Designated reviewer" as Reviewer
+actor "Invited person" as Invitee
+
+rectangle "TB-1: untrusted user devices" as Devices {
+  component "SplitSmart Swing client\n(MVP, presentation only)" as Swing
+  component "Web / Android / iOS clients\n(FULL PRODUCT - not MVP)" as Future #line.dashed
+  component "Authenticator app\n(RFC 6238 TOTP)" as AuthApp
+}
+
+rectangle "Trusted zone: SplitSmart application core" as Core {
+  component "SplitSmart application server\n(application + domain + adapters)" as Server
+}
+
+database "Data store\n(technology: OQ-06)" as DB
+storage "Receipt store\n(provider: OQ-08)" as RS
+cloud "Email service\n(provider: OQ-07)" as Mail
+
+User --> Swing
+Manager --> Swing
+Reviewer --> Swing
+Invitee --> Swing
+User ..> Future : full product
+User --> AuthApp : reads TOTP code
+
+Swing --> Server : application API\n(TB-1, protocol OQ-28)
+Future ..> Server : same API (future)
+Server --> DB : TB-2 (server-only credentials)
+Server --> RS : TB-2
+Server --> Mail : TB-3 outbound only
+Mail ..> User : verification / invitation /\nexpense-submitted email
+
+note bottom of Server
+  All authentication, authorization, validation,
+  share allocation and balance computation run here.
+  Clients never connect to the data store or receipt store.
+end note
+@enduml

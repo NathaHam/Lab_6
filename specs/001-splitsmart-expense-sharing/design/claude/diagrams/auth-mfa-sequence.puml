@@ -1,0 +1,60 @@
+@startuml auth-mfa-sequence
+' Registration, verification, MFA enrollment, and sign-in (Claude proposal). See design.md section 9.
+title SplitSmart - Account, MFA Enrollment, Sign-in (FR-001, NFR-001)
+skinparam shadowing false
+autonumber
+
+actor User
+participant "Swing\nAuthPresenter" as UI
+participant AccountService as AS
+participant "PasswordHasher\n(PBKDF2)" as PH
+participant "TotpVerifier\n(RFC 6238)" as TV
+participant "Account + Session\nrepositories" as DB
+participant "Email outbox" as OB
+participant "Authenticator app" as APP
+
+== Registration and verification ==
+User -> UI : email, password, display name
+UI -> AS : register(...)
+AS -> PH : hash(password, random salt)
+AS -> DB : insert UserAccount(PENDING_VERIFICATION)\n+ token hash (expires)
+AS -> OB : queue VERIFY_EMAIL
+AS --> UI : generic "check your email"\n(same response if email already used)
+User -> UI : open link / paste token
+UI -> AS : verifyEmail(token)
+AS -> DB : token valid, unused, unexpired -> status PENDING_MFA
+
+== MFA enrollment ==
+User -> UI : sign in (password)
+UI -> AS : signIn(email, password)
+AS -> PH : verify (constant time)
+AS -> DB : session(PASSWORD_OK)
+AS --> UI : enrollment required
+UI -> AS : beginMfaEnrollment()
+AS -> DB : store AES-GCM encrypted 20-byte secret
+AS --> UI : Base32 secret + otpauth URI (QR: OQ-35)
+User -> APP : add account
+APP --> User : 6-digit code
+User -> UI : enter code
+UI -> AS : confirmMfaEnrollment(code)
+AS -> TV : verify(secret, code, window +/-1, step > lastAcceptedStep)
+AS -> DB : confirm; issue 10 hashed recovery codes; status ACTIVE;\nsession -> FULL
+AS --> UI : recovery codes (shown once)
+
+== Normal sign-in ==
+User -> UI : email + password
+UI -> AS : signIn(...)
+AS -> DB : throttle check (OQ-29)
+AS --> UI : session(PASSWORD_OK): second factor required
+alt TOTP
+  User -> UI : code from app
+  UI -> AS : signInSecondFactor(totp)
+  AS -> TV : verify + replay check
+else recovery code
+  User -> UI : recovery code
+  UI -> AS : signInSecondFactor(recoveryCode)
+  AS -> DB : match unused hash; mark used
+end
+AS -> DB : session -> FULL (idle/absolute expiry, OQ-18)
+AS --> UI : signed in; only FULL sessions reach business services
+@enduml

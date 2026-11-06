@@ -1,0 +1,55 @@
+@startuml payment-settlement-activity
+' Payment settlement activity (Claude proposal). See design.md section 6.
+title SplitSmart - Payment Settlement (MVP)
+skinparam shadowing false
+
+|Member (Swing)|
+start
+:Open group balances;
+:Select counterparty; see outstanding amount;
+:Open "Record payment" dialog;
+:Client generates CommandId;
+:Enter payer, recipient, amount,\ndate, optional description;
+:Submit;
+|Application server|
+:AccessPolicy: caller is active member\nand is payer or recipient (OQ-19);
+if (CommandId already processed?) then (yes)
+  :Return stored payment;
+  stop
+else (no)
+endif
+:Validate: payer != recipient, both active members,\ngroup currency, valid scale,\namount > 0 (OQ-20), date present;
+if (Valid?) then (no)
+  :ValidationException;
+  |Member (Swing)|
+  :Show field errors;
+  stop
+else (yes)
+endif
+|Application server|
+partition "Single transaction" {
+  :Lock PairBalance(group, payer, recipient);
+  :outstanding := max(0, net(payer -> recipient));
+  if (amount <= outstanding?) then (yes)
+    :Insert Payment (immutable);
+    :Insert LedgerEntry(owedBy = recipient,\nowedTo = payer, amount, PAYMENT);
+    :PairBalance.net updated by amount;
+    :Record ProcessedCommand;
+    :Commit;
+  else (no)
+    :OverpaymentException(outstanding);
+    :Roll back - balance unchanged;
+    |Member (Swing)|
+    :Show "Maximum payable is X";
+    stop
+  endif
+}
+|Member (Swing)|
+:Show updated balance and payment history;
+if (outstanding - amount == 0?) then (yes)
+  :Pair shown as settled;
+else (no)
+  :Remaining debt shown (partial payment);
+endif
+stop
+@enduml

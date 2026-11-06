@@ -1,0 +1,56 @@
+@startuml payment-balance-sequence
+' Record payment and view balances (Claude proposal). See design.md sections 5-6 and 8.
+title SplitSmart - Record Payment and Refresh Balances (MVP)
+skinparam shadowing false
+autonumber
+
+actor "Debtor A" as A
+participant "Swing\nPaymentPresenter" as PP
+participant "API client /\nadapter" as API
+participant PaymentService as PS
+participant AccessPolicy as AP
+participant "PairBalance\nrepository" as PB
+participant "Payment + Ledger\nrepositories" as PL
+participant BalanceQueryService as BQ
+
+A -> PP : Record payment A -> B, 40.00 (CommandId)
+PP -> API : record(cmd) [SwingWorker]
+API -> PS : record(principal, cmd)
+PS -> AP : requireMember; caller in {payer, recipient}
+PS -> PS : validate amount > 0, scale, payer != recipient
+PS -> PL : begin; processedCommand(cmdId)?
+alt already processed
+  PL --> PS : existing paymentId
+  PS --> API : same PaymentDto (idempotent)
+else new
+  PS -> PB : lockForUpdate(group, low, high)
+  PB --> PS : net(A -> B) = 100.00
+  PS -> PS : outstanding = max(0, 100.00) = 100.00
+  alt amount > outstanding
+    PS -> PL : rollback
+    PS --> API : OverpaymentException(100.00)
+  else amount <= outstanding
+    PS -> PL : insert Payment (immutable)
+    PS -> PL : insert LedgerEntry(owedBy=B, owedTo=A, 40.00, PAYMENT)
+    PS -> PB : update net(A -> B) = 60.00 (version+1)
+    PS -> PL : insert ProcessedCommand; commit
+    PS --> API : PaymentDto
+  end
+end
+API --> PP : result
+PP -> API : groupBalances(groupId)
+API -> BQ : groupBalances(principal, groupId)
+BQ -> AP : requireMember
+BQ -> PB : findByGroup(groupId) (at most 1225 rows)
+PB --> BQ : pair nets
+BQ --> API : BalanceDto list
+API --> PP : balances
+PP --> A : "You owe B 60.00"
+
+note over PB
+  Concurrent payment by A (60.00) waits on the same
+  row lock, then sees outstanding 60.00 and succeeds;
+  a third would be rejected. Projection invariant:
+  net = sum(ledger low->high) - sum(ledger high->low).
+end note
+@enduml

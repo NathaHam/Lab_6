@@ -1,0 +1,21 @@
+@startuml invitation-state
+' Invitation lifecycle (Claude proposal). See design.md section 2 and data-model.md section 3.3.
+title SplitSmart - Group Invitation Lifecycle (FR-002)
+skinparam shadowing false
+
+[*] --> PENDING : manager invites email
+PENDING --> ACCEPTED : invitee accepts\n[verified email matches]\n/ create Membership atomically
+PENDING --> DECLINED : invitee declines
+PENDING --> REVOKED : manager revokes
+ACCEPTED --> [*]
+DECLINED --> [*]
+REVOKED --> [*]
+
+PENDING : no access to group data
+ACCEPTED : member gains access
+note right of PENDING
+  Expiry is undecided (OQ-26).
+  At most one PENDING invitation
+  per (group, email).
+end note
+@enduml

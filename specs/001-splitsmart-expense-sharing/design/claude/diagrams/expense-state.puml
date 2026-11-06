@@ -1,0 +1,34 @@
+@startuml expense-state
+' Expense lifecycle state machine (Claude proposal). See design.md section 4.3.
+title SplitSmart - Expense Lifecycle
+skinparam shadowing false
+
+[*] --> PENDING : submit\n[valid; shares reconcile]
+
+state PENDING {
+  [*] --> AwaitingDesignation : no eligible standing reviewer
+  [*] --> AwaitingDecision : standing reviewer set\nand != submitter
+  AwaitingDesignation --> AwaitingDecision : manager designates reviewer\n[active member, != submitter]
+  AwaitingDecision --> AwaitingDecision : manager re-designates\n(e.g. reviewer removed)
+}
+PENDING : excluded from balances (FR-006)
+PENDING : shown as "Pending" (NFR-004)
+
+PENDING --> APPROVED : approve\n[caller == designated reviewer;\nversion matches]\n/ post ledger entries
+PENDING --> REJECTED : reject\n[caller == designated reviewer;\nversion matches]
+
+APPROVED : included in pairwise balances (FR-008)
+APPROVED : terminal
+REJECTED : never affects balances
+REJECTED : terminal; resubmission creates\na NEW expense (OQ-13)
+
+APPROVED --> [*]
+REJECTED --> [*]
+
+note right of PENDING
+  FULL PRODUCT: stays PENDING until
+  ApprovalPolicy.isSatisfied() for all
+  configured levels; any rejection -> REJECTED
+  (OQ-31). MVP has exactly one level.
+end note
+@enduml

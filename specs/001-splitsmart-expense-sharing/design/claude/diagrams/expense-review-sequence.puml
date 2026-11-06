@@ -1,0 +1,74 @@
+@startuml expense-review-sequence
+' Submit then approve sequence (Claude proposal). See design.md sections 4.1 and 4.4.
+title SplitSmart - Submit and Approve Expense (MVP, topology B)
+skinparam shadowing false
+autonumber
+
+actor Submitter
+participant "Swing\nExpensePresenter" as SP
+participant "API client" as AC
+participant "API adapter" as AA
+participant ExpenseService as ES
+participant AccessPolicy as AP
+participant ShareAllocator as SA
+participant NotificationService as NS
+participant "UnitOfWork +\nRepositories" as DB
+actor Reviewer
+participant "Swing\nReviewPresenter" as RP
+participant ReviewService as RS
+participant "SingleReviewerPolicy" as POL
+
+Submitter -> SP : Submit (form, CommandId)
+SP -> AC : submit(cmd) [SwingWorker]
+AC -> AA : request + session token
+AA -> AA : resolve Principal (FULL session)
+AA -> ES : submit(principal, cmd)
+ES -> AP : requireMember(principal, groupId)
+ES -> DB : begin
+ES -> DB : processedCommand(cmdId)?
+alt already processed
+  DB --> ES : stored expenseId
+  ES --> AA : same result (idempotent)
+else new command
+  ES -> ES : validate fields
+  ES -> SA : allocate(amount, method, participants, pcts)
+  SA --> ES : shares (sum == amount)
+  ES -> DB : insert Expense(PENDING) + shares
+  ES -> NS : onExpenseSubmitted(expense)
+  NS -> DB : insert Notification x (other members)
+  NS -> DB : insert EmailOutbox for members\nwithout an active FULL session
+  ES -> DB : insert ProcessedCommand
+  ES -> DB : commit
+  ES --> AA : ExpenseDto(PENDING)
+end
+AA --> AC : response
+AC --> SP : ExpenseDto
+SP --> Submitter : "Pending review" (not in balances)
+
+== Later: designated reviewer decides ==
+Reviewer -> RP : Approve (expenseId, version)
+RP -> AC : approve(expenseId, expectedVersion)
+AC -> AA : request
+AA -> RS : approve(principal, expenseId, v)
+RS -> DB : begin; load Expense
+RS -> POL : canDecide(principal, expense)
+alt not the designated reviewer (or is submitter)
+  POL --> RS : false
+  RS -> DB : rollback
+  RS --> AA : AuthorizationDeniedException\n(status and balances unchanged)
+else designated reviewer
+  POL --> RS : true
+  RS -> RS : check version == v
+  RS -> DB : insert ReviewRecord(level 1, APPROVE)
+  RS -> DB : update Expense status APPROVED (version+1)
+  loop each non-payer share > 0
+    RS -> DB : insert LedgerEntry(owedBy=participant,\nowedTo=payer) [unique per source]
+  end
+  RS -> DB : lock + update PairBalance rows\n(canonical key order)
+  RS -> DB : commit
+  RS --> AA : ExpenseDto(APPROVED)
+end
+AA --> AC : response
+AC --> RP : result
+RP --> Reviewer : status shown
+@enduml

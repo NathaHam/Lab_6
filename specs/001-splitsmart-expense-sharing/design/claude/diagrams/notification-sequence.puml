@@ -1,0 +1,51 @@
+@startuml notification-sequence
+' Notification fan-out and email outbox retries (Claude proposal). See design.md section 7.
+title SplitSmart - Expense-Submitted Notifications (FR-007)
+skinparam shadowing false
+autonumber
+
+participant ExpenseService as ES
+participant NotificationService as NS
+participant "Session repository" as SR
+participant "Notification +\nOutbox repositories" as NR
+participant OutboxDispatcher as OD
+participant "EmailGateway\n(provider OQ-07)" as EG
+actor "Signed-in member" as M1
+actor "Signed-out member" as M2
+
+== Inside the submit transaction ==
+ES -> NS : onExpenseSubmitted(expense)
+NS -> NS : recipients = active members - submitter
+loop each recipient
+  NS -> NR : insert Notification(recipient, group, expense)\n[unique per recipient+expense+type]
+  NS -> SR : hasActiveFullSession(recipient, now)?
+  alt no active FULL session (signed out)
+    NS -> NR : insert EmailOutboxMessage(PENDING,\nnextAttemptAt = now)
+  else signed in
+    NS -> NS : no email
+  end
+end
+note right of NS : committed atomically with the expense
+
+== Asynchronous delivery ==
+loop every N seconds
+  OD -> NR : claim PENDING where nextAttemptAt <= now\n(set lease_until; compare-and-set)
+  OD -> EG : send(message, idempotencyKey = message.id)
+  alt success
+    EG --> OD : accepted
+    OD -> NR : status SENT
+  else transient failure and attempts < max
+    EG --> OD : error
+    OD -> NR : attempts+1; nextAttemptAt = backoff(attempts)
+  else permanent failure or attempts exhausted
+    OD -> NR : status FAILED; log + metric (OQ-27)
+  end
+end
+EG -> M2 : email: group + expense identification\n(content minimised, OQ-17)
+
+== In-app ==
+M1 -> NS : unreadCount() / listMine() (poll ~30 s)
+NS --> M1 : notice identifying group and expense
+M2 -> NS : signs in later; listMine()
+NS --> M2 : notice still available (US3 AS3)
+@enduml

@@ -1,0 +1,215 @@
+@startuml domain-class
+' Domain model (Claude proposal). See design.md section 1 and data-model.md section 3.
+title SplitSmart - Domain Model (proposal)
+skinparam shadowing false
+hide empty members
+
+package "Value objects" {
+  class Money <<value>> {
+    +amount : BigDecimal
+    +currency : CurrencyUnit
+    +plus(other : Money) : Money
+    +minus(other : Money) : Money
+    +toMinorUnits() : BigInteger
+    +{static} ofMinorUnits(units : BigInteger, c : CurrencyUnit) : Money
+    --
+    scale == currency.minorUnitDigits
+    never float or double
+  }
+  class CurrencyUnit <<value>> {
+    +code : String
+    +minorUnitDigits : int
+  }
+  class Percentage <<value>> {
+    +value : BigDecimal
+    --
+    0 < value <= 100
+    scale <= MAX_SCALE
+  }
+  class DateRange <<value>> {
+    +start : LocalDate
+    +end : LocalDate
+    +contains(d : LocalDate) : boolean
+    --
+    inclusive; start <= end
+  }
+  class EmailAddress <<value>>
+  class ParticipantName <<value>>
+  enum SplitMethod {
+    EQUAL
+    PERCENTAGE
+  }
+  enum ExpenseStatus {
+    PENDING
+    APPROVED
+    REJECTED
+  }
+  enum ReviewDecision {
+    APPROVE
+    REJECT
+  }
+  enum MemberRole {
+    MANAGER
+    MEMBER
+  }
+  enum InvitationStatus {
+    PENDING
+    ACCEPTED
+    DECLINED
+    REVOKED
+  }
+}
+
+package "Aggregates" {
+  class UserAccount <<aggregate root>> {
+    +id : UserId
+    +email : EmailAddress
+    +displayName : String
+    +status : AccountStatus
+    +verifyEmail(token, now)
+    +confirmMfa(code, now)
+    +acceptSecondFactor(code, now)
+  }
+  class MfaEnrollment {
+    -encryptedSecret : byte[]
+    -lastAcceptedStep : long
+  }
+  class RecoveryCode {
+    -codeHash : String
+    -usedAt : Instant
+  }
+
+  class Group <<aggregate root>> {
+    +id : GroupId
+    +name : String
+    +currency : CurrencyUnit
+    +standingReviewerId : UserId
+    +invite(email, by)
+    +accept(invitationId, user)
+    +removeMember(userId, by)
+    +isActiveMember(userId) : boolean
+    --
+    at least one active MANAGER
+  }
+  class Membership {
+    +userId : UserId
+    +role : MemberRole
+    +removedAt : Instant
+  }
+  class Invitation {
+    +inviteeEmail : EmailAddress
+    +status : InvitationStatus
+  }
+
+  class Expense <<aggregate root>> {
+    +id : ExpenseId
+    +groupId : GroupId
+    +submitterId : UserId
+    +payerId : UserId
+    +amount : Money
+    +expenseDate : LocalDate
+    +description : String
+    +splitMethod : SplitMethod
+    +status : ExpenseStatus
+    +reviewerId : UserId
+    +supersedesExpenseId : ExpenseId
+    +version : long
+    +designateReviewer(r : UserId)
+    +approve(by : UserId, p : ApprovalPolicy, at : Instant) : List<LedgerEntry>
+    +reject(by : UserId, p : ApprovalPolicy, at : Instant, reason : String)
+    --
+    sum(shares) == amount
+    reviewerId != submitterId
+    shares immutable after submit
+  }
+  class ExpenseShare {
+    +participantId : UserId
+    +nameSnapshot : ParticipantName
+    +percentage : Percentage
+    +share : Money
+  }
+  class ReceiptRef <<value>> {
+    +contentKey : String
+    +mediaType : String
+    +sizeBytes : long
+  }
+  class ReviewRecord {
+    +level : int
+    +reviewerId : UserId
+    +decision : ReviewDecision
+    +decidedAt : Instant
+  }
+
+  class Payment <<aggregate root>> {
+    +id : PaymentId
+    +groupId : GroupId
+    +payerId : UserId
+    +recipientId : UserId
+    +amount : Money
+    +paymentDate : LocalDate
+    +description : String
+    --
+    immutable; amount > 0
+    payerId != recipientId
+  }
+}
+
+package "Ledger" {
+  class LedgerEntry <<immutable>> {
+    +owedBy : UserId
+    +owedTo : UserId
+    +amount : Money
+    +sourceType : SourceType
+    +sourceId : UUID
+  }
+  class PairBalance <<projection>> {
+    +groupId : GroupId
+    +low : UserId
+    +high : UserId
+    +net : Money
+    +outstanding(from : UserId, to : UserId) : Money
+  }
+}
+
+package "Domain services" {
+  class ShareAllocator {
+    +allocate(amount, method, participants, percentages) : List<ExpenseShare>
+  }
+  interface TieBreakPolicy {
+    +order(tiedRun) : List<Participant>
+  }
+  class FailClosedTieBreak
+  interface ApprovalPolicy {
+    +canDecide(user : UserId, e : Expense) : boolean
+    +isSatisfied(reviews : List<ReviewRecord>) : boolean
+  }
+  class SingleReviewerPolicy <<MVP>>
+  class MultiLevelPolicy <<FULL PRODUCT>>
+  class BalanceCalculator {
+    +fold(entries : List<LedgerEntry>) : Map<Pair, Money>
+  }
+}
+
+UserAccount *-- "0..1" MfaEnrollment
+UserAccount *-- "0..*" RecoveryCode
+Group *-- "1..*" Membership
+Group *-- "0..*" Invitation
+Expense *-- "1..*" ExpenseShare
+Expense *-- "0..1" ReceiptRef
+Expense *-- "0..*" ReviewRecord
+
+FailClosedTieBreak ..|> TieBreakPolicy
+SingleReviewerPolicy ..|> ApprovalPolicy
+MultiLevelPolicy ..|> ApprovalPolicy
+ShareAllocator --> TieBreakPolicy
+Expense ..> ApprovalPolicy
+Expense ..> ShareAllocator : shares fixed at submit
+Expense ..> LedgerEntry : approve() produces
+Payment ..> LedgerEntry : reverse obligation
+BalanceCalculator ..> LedgerEntry
+PairBalance ..> LedgerEntry : projection of
+Expense --> Group : groupId
+Payment --> Group : groupId
+Membership --> UserAccount : userId
+Money --> CurrencyUnit
+@enduml

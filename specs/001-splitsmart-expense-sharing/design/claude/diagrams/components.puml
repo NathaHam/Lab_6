@@ -1,0 +1,108 @@
+@startuml components
+' Layered ports-and-adapters component view (Claude proposal). See architecture.md sections 4-5.
+title SplitSmart - Components and Dependency Direction (proposal)
+skinparam shadowing false
+skinparam componentStyle rectangle
+
+package "splitsmart-swing (presentation)" {
+  [Views (JPanel)] as Views
+  [Presenters] as Presenters
+  [Remote API client\n(implements application.api)] as ApiClient
+}
+
+package "splitsmart-server (only if ADR-002 option B)" {
+  [Remote API adapter\n(resolves Principal from session)] as ApiAdapter
+}
+
+package "splitsmart-application" {
+  interface "application.api\nFacades + DTO records" as Facades
+  [AccountService] as AccountSvc
+  [GroupService] as GroupSvc
+  [ExpenseService] as ExpenseSvc
+  [ReviewService] as ReviewSvc
+  [PaymentService] as PaymentSvc
+  [BalanceQueryService] as BalanceSvc
+  [NotificationService] as NotifSvc
+  [ReportService] as ReportSvc
+  [AccessPolicy] as Access
+  interface "port: Repositories,\nUnitOfWork" as Repos
+  interface "port: EmailGateway" as EmailPort
+  interface "port: ReceiptStore" as ReceiptPort
+  interface "port: PasswordHasher,\nTotpVerifier, SecretCipher" as CryptoPort
+  interface "port: Clock, IdGenerator,\nSupportedCurrencies" as InfraPort
+}
+
+package "splitsmart-domain" {
+  [Aggregates: UserAccount, Group,\nExpense, Payment] as Aggs
+  [Value objects: Money, CurrencyUnit,\nPercentage, DateRange] as VOs
+  [ShareAllocator] as Allocator
+  [ApprovalPolicy\nSingleReviewerPolicy (MVP)\nMultiLevelPolicy (FULL)] as Approval
+  [BalanceCalculator] as BalCalc
+}
+
+package "splitsmart-infrastructure" {
+  [Persistence adapter (OQ-06)\n+ in-memory adapter] as PersistAd
+  [Email adapter (OQ-07)\n+ OutboxDispatcher] as EmailAd
+  [Receipt adapter (OQ-08)] as ReceiptAd
+  [JDK crypto adapters\nPBKDF2 / TOTP / AES-GCM] as CryptoAd
+  [System clock, UUID generator,\ncurrency config] as SysAd
+  [Composition roots\n(manual wiring)] as Roots
+}
+
+Views --> Presenters
+Presenters --> Facades : uses
+ApiClient ..> Facades : implements (client side)
+ApiAdapter --> Facades : delegates
+
+AccountSvc ..> Facades : implements
+GroupSvc ..> Facades : implements
+ExpenseSvc ..> Facades : implements
+ReviewSvc ..> Facades : implements
+PaymentSvc ..> Facades : implements
+BalanceSvc ..> Facades : implements
+NotifSvc ..> Facades : implements
+ReportSvc ..> Facades : implements
+
+AccountSvc --> Access
+GroupSvc --> Access
+ExpenseSvc --> Access
+ReviewSvc --> Access
+PaymentSvc --> Access
+BalanceSvc --> Access
+NotifSvc --> Access
+ReportSvc --> Access
+
+ExpenseSvc --> Allocator
+ExpenseSvc --> Aggs
+ReviewSvc --> Approval
+PaymentSvc --> Aggs
+BalanceSvc --> BalCalc
+Aggs --> VOs
+Allocator --> VOs
+
+ExpenseSvc --> Repos
+ExpenseSvc --> ReceiptPort
+NotifSvc --> EmailPort
+AccountSvc --> CryptoPort
+AccountSvc --> InfraPort
+
+PersistAd ..> Repos : implements
+EmailAd ..> EmailPort : implements
+ReceiptAd ..> ReceiptPort : implements
+CryptoAd ..> CryptoPort : implements
+SysAd ..> InfraPort : implements
+Roots --> PersistAd
+Roots --> EmailAd
+Roots --> ReceiptAd
+Roots --> CryptoAd
+Roots --> SysAd
+
+note right of Allocator
+  Domain depends on nothing:
+  no Swing, I/O, or clock access.
+end note
+note bottom of Views
+  Swing depends only on application.api.
+  Enforced by Maven modules + JPMS exports.
+end note
+@enduml

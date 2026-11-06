@@ -1,0 +1,50 @@
+@startuml deployment
+' Deployment (Claude proposal, ADR-002 option B; decision needed). See architecture.md section 6.
+title SplitSmart - Deployment (proposed topology B)
+skinparam shadowing false
+
+node "User desktop (Windows / macOS / Linux)\nJava 21 runtime" as Desktop {
+  artifact "splitsmart-swing.jar\n(presentation + API client)" as SwingJar
+}
+
+node "SplitSmart application server\nJava 21 runtime" as AppServer {
+  artifact "splitsmart-server.jar" as ServerJar
+  component "Remote API adapter\n(protocol OQ-28)" as Api
+  component "Application + domain" as Core
+  component "OutboxDispatcher\n(scheduled thread)" as Disp
+  component "Infrastructure adapters" as Adapters
+}
+
+database "Data store\n(technology OQ-06)" as DB
+node "Receipt store\n(provider OQ-08)" as RS
+cloud "Email provider\n(OQ-07)" as Mail
+node "User phone" as Phone {
+  artifact "Authenticator app" as Auth
+}
+
+node "FULL PRODUCT (future, not MVP)" as FP #line.dashed {
+  artifact "Web client (primary)" as Web
+  artifact "Android app" as Android
+  artifact "iOS app" as IOS
+}
+
+SwingJar --> Api : encrypted transport\nsession token
+Api --> Core
+Core --> Adapters
+Disp --> Adapters
+Adapters --> DB
+Adapters --> RS
+Adapters --> Mail
+Web ..> Api : same API (future)
+Android ..> Api
+IOS ..> Api
+
+node "Developer machine (dev/test only)" as Dev {
+  artifact "Swing + application + in-memory adapters\n(single JVM, NOT a supported multi-user deployment)" as DevJar
+}
+
+note bottom of Dev
+  Does not enforce trust boundary TB-1.
+  Must be labelled as dev/test in the UI.
+end note
+@enduml

@@ -1,0 +1,72 @@
+@startuml use-case
+' Use cases (Claude proposal). Actors follow spec.md "Actors".
+title SplitSmart - Use Cases (MVP and full product)
+left to right direction
+skinparam shadowing false
+
+actor "Individual user" as User
+actor "Group manager" as Manager
+actor "Invited person" as Invitee
+actor "Expense submitter" as Submitter
+actor "Designated reviewer" as Reviewer
+actor "Group member /\nparticipant" as Member
+actor "Email service" as Mail <<system>>
+
+Manager --|> User
+Invitee --|> User
+Submitter --|> Member
+Reviewer --|> Member
+Member --|> User
+
+rectangle "SplitSmart - Java Swing MVP" {
+  usecase "Register and verify email\n(FR-001)" as UC1
+  usecase "Enroll authenticator app;\nreceive recovery codes (FR-001)" as UC2
+  usecase "Sign in with password + TOTP\nor recovery code (FR-001)" as UC3
+  usecase "Create group (FR-002)" as UC4
+  usecase "Invite / remove member (FR-002)" as UC5
+  usecase "Accept / decline invitation\n(FR-002)" as UC6
+  usecase "Designate reviewer (FR-006)" as UC7
+  usecase "Submit expense with split\nand optional receipt\n(FR-003, FR-004, FR-005)" as UC8
+  usecase "Preview split (FR-004)" as UC8a
+  usecase "Approve / reject expense\n(FR-006)" as UC9
+  usecase "View notifications (FR-007)" as UC10
+  usecase "View pairwise balances\n(FR-008)" as UC11
+  usecase "Record payment (FR-009)" as UC12
+  usecase "View summaries (FR-010)" as UC13
+  usecase "Run filtered report (FR-011)" as UC14
+  usecase "View expense status,\nsubmitter, outcome (NFR-004)" as UC15
+}
+
+rectangle "Full product only (not MVP)" {
+  usecase "Use SplitSmart on web,\nAndroid, iOS (FR-012, NFR-005)" as UC16
+  usecase "Configure multiple review\nlevels (FR-006 full)" as UC17
+}
+
+User --> UC1
+User --> UC2
+User --> UC3
+User --> UC4
+Manager --> UC5
+Manager --> UC7
+Manager --> UC17
+Invitee --> UC6
+Submitter --> UC8
+UC8 ..> UC8a : <<include>>
+Reviewer --> UC9
+Member --> UC10
+Member --> UC11
+Member --> UC12
+Member --> UC13
+Member --> UC14
+Member --> UC15
+User --> UC16
+
+UC1 --> Mail
+UC5 --> Mail
+UC8 --> Mail : email to signed-out members
+
+note right of UC9
+  Reviewer must not be
+  the expense submitter.
+end note
+@enduml
