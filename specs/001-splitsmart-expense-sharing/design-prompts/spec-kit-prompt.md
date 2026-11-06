@@ -66,6 +66,8 @@ Create under the assigned directory:
 - open-questions.md with impact, stakeholder/owner, and decision timing
 - design-review-checklist.md
 
+Also include PlantUML use case, activity (expense submit/review/approve-reject, payment settlement), state (expense lifecycle), sequence and deployment diagrams in diagrams/.
+
 Quality:
 - Be specific enough to derive implementation tasks, but do not write implementation code or begin implementation.
 - Separate source facts, assumptions, recommendations, and human decisions.

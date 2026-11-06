@@ -40,5 +40,7 @@ Create under the assigned directory:
 7. open-questions.md (impact, owner, decision timing)
 8. design-review-checklist.md
 
+Also include PlantUML use case, activity (expense submit/review/approve-reject, payment settlement), state (expense lifecycle), sequence and deployment diagrams in diagrams/.
+
 Self-review: distinguish facts, assumptions, recommendations, and human decisions; keep diagrams valid and consistent; do not omit full-product requirements; do not claim tests pass; propose concrete tests. Finish with files created, sources inspected, assumptions, unresolved decisions, and conflicts. Keep changes inside the assigned directory.
 ```
