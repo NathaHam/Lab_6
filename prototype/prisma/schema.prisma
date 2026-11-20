@@ -1,3 +1,14 @@
+// SplitSmart prototype schema (SQLite via Prisma).
+//
+// Prototype simplifications compared with the production design in
+// specs/001-splitsmart-expense-sharing/design/final/data-model.md:
+// - Money is stored as integer cents (Int). One currency (USD) per group.
+// - Percentages are stored as integer basis points (33.33% = 3333).
+// - Calendar dates are stored as "YYYY-MM-DD" strings (no time zone).
+// - Balances are derived on read from APPROVED expenses and payments
+//   instead of a separate append-only ledger table.
+// - There is no real authentication: a demo cookie selects the acting user.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,8 +18,136 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Starter environment verification model (kept from the Lab 8 setup).
 model EnvironmentCheck {
   id        Int      @id @default(autoincrement())
   message   String
   createdAt DateTime @default(now())
+}
+
+model User {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  avatarColor String   @default("#0f766e")
+  createdAt   DateTime @default(now())
+
+  memberships       Membership[]
+  expensesPaid      Expense[]      @relation("ExpensePayer")
+  expensesSubmitted Expense[]      @relation("ExpenseSubmitter")
+  expensesToReview  Expense[]      @relation("ExpenseReviewer")
+  shares            ExpenseShare[]
+  paymentsMade      Payment[]      @relation("PaymentPayer")
+  paymentsReceived  Payment[]      @relation("PaymentRecipient")
+  paymentsRecorded  Payment[]      @relation("PaymentRecorder")
+  notifications     Notification[]
+}
+
+model Group {
+  id           String   @id @default(cuid())
+  name         String
+  description  String   @default("")
+  emoji        String   @default("👥")
+  currencyCode String   @default("USD")
+  createdAt    DateTime @default(now())
+
+  memberships   Membership[]
+  expenses      Expense[]
+  payments      Payment[]
+  notifications Notification[]
+}
+
+model Membership {
+  id       String   @id @default(cuid())
+  groupId  String
+  userId   String
+  role     String   @default("MEMBER") // MANAGER | MEMBER
+  joinedAt DateTime @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+}
+
+model Expense {
+  id           String    @id @default(cuid())
+  groupId      String
+  description  String
+  amountCents  Int
+  expenseDate  String // YYYY-MM-DD
+  splitMethod  String // EQUAL | PERCENTAGE
+  status       String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  payerId      String
+  submitterId  String
+  reviewerId   String
+  reviewNote   String?
+  submittedAt  DateTime  @default(now())
+  decidedAt    DateTime?
+  // Idempotency key from the submitting form, so a double submit creates one expense.
+  commandId    String?   @unique
+
+  group     Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payer     User           @relation("ExpensePayer", fields: [payerId], references: [id])
+  submitter User           @relation("ExpenseSubmitter", fields: [submitterId], references: [id])
+  reviewer  User           @relation("ExpenseReviewer", fields: [reviewerId], references: [id])
+  shares    ExpenseShare[]
+  notifications Notification[]
+
+  @@index([groupId, status, submittedAt])
+  @@index([groupId, expenseDate])
+  @@index([reviewerId, status])
+}
+
+model ExpenseShare {
+  expenseId         String
+  userId            String
+  shareCents        Int
+  percentBasisPoints Int? // only for PERCENTAGE splits; 10000 = 100%
+  receivedExtraCent Boolean @default(false)
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@id([expenseId, userId])
+  @@index([userId])
+}
+
+model Payment {
+  id           String   @id @default(cuid())
+  groupId      String
+  payerId      String
+  recipientId  String
+  amountCents  Int
+  paymentDate  String // YYYY-MM-DD
+  note         String?
+  recordedById String
+  createdAt    DateTime @default(now())
+  commandId    String?  @unique
+
+  group      Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  payer      User  @relation("PaymentPayer", fields: [payerId], references: [id])
+  recipient  User  @relation("PaymentRecipient", fields: [recipientId], references: [id])
+  recordedBy User  @relation("PaymentRecorder", fields: [recordedById], references: [id])
+
+  @@index([groupId, paymentDate])
+}
+
+// In-app notices only. The prototype never sends email or push notifications.
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  groupId   String
+  expenseId String?
+  message   String
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group   Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  expense Expense? @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, expenseId])
+  @@index([userId, readAt, createdAt])
 }
