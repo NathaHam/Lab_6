@@ -8,6 +8,8 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
+    // Idempotent demo data. Uses Node's built-in TypeScript support (Node >= 22.18).
+    seed: "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON prisma/seed.ts",
   },
   engine: "classic",
   datasource: {
